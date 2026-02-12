@@ -31,6 +31,10 @@ DDNS Master 旨在提供一个精致且直观的界面，帮助用户自动化�
 数据库：SQLite (通过 GORM 驱动)。
 
 样式：Bootstrap 5 + Bootstrap Icons。
+## 一键安装
+```
+curl -o install.sh https://raw.githubusercontent.com/jinhuaitao/ddns/master/install.sh && chmod +x install.sh && ./install.sh
+```
 
 🚀 快速开始
 1. 编译运行
