@@ -234,7 +234,7 @@ func runDDNS() {
 	}
 
 	ipCache := make(map[string]string)
-	
+
 	getIPWithCache := func(d Domain) (string, error) {
 		var cacheKey string
 		if d.IPSource == "interface" {
@@ -244,7 +244,9 @@ func runDDNS() {
 		}
 
 		if ip, ok := ipCache[cacheKey]; ok {
-			if ip == "" { return "", fmt.Errorf("pre-fail") }
+			if ip == "" {
+				return "", fmt.Errorf("pre-fail")
+			}
 			return ip, nil
 		}
 
@@ -269,7 +271,7 @@ func runDDNS() {
 
 	for _, d := range domains {
 		currentIP, err := getIPWithCache(d)
-		
+
 		if err != nil || currentIP == "" {
 			if d.Status != "Error" {
 				d.Status = "Error"
@@ -330,10 +332,10 @@ func runDDNS() {
 			d.Status = "Synced"
 			d.LastIP = currentIP
 			d.LastMsg = "同步成功"
-			
+
 			addHistory(d.RecordName, d.RecordType, oldIP, currentIP)
 			addLog("SUCCESS", fmt.Sprintf("[%s] IP 更新成功: %s -> %s", d.RecordName, oldIP, currentIP))
-			
+
 			msg := fmt.Sprintf("✅ <b>IP 更新成功</b>\n\n域名: <code>%s</code>\n类型: %s\n来源: %s\n变更: <code>%s</code> -> <code>%s</code>", d.RecordName, d.RecordType, d.IPSource, oldIP, currentIP)
 			go sendTelegramNotification(setting.TelegramBotToken, setting.TelegramChatID, msg)
 		}
@@ -360,7 +362,7 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
-	r.MaxMultipartMemory = 8 << 20 // 8 MiB
+	r.MaxMultipartMemory = 8 << 20
 
 	store := cookie.NewStore([]byte("s3cr3t_k3y_g3n3r4t3d_r4nd0mly"))
 	store.Options(sessions.Options{Path: "/", MaxAge: 86400 * 7, HttpOnly: true, Secure: false})
@@ -374,6 +376,7 @@ func main() {
 	t.New("install").Parse(installHTML)
 	t.New("dashboard").Parse(dashboardHTML)
 	t.New("settings").Parse(settingsHTML)
+	t.New("account").Parse(accountHTML) // 解析新的账号模板
 	t.New("logs").Parse(logsHTML)
 	r.SetHTMLTemplate(t)
 
@@ -395,10 +398,13 @@ func main() {
 
 		auth.GET("/settings", handleSettings)
 		auth.POST("/settings/update", handleUpdateSettings)
-		auth.POST("/settings/password", handleUpdatePassword)
 		auth.POST("/settings/test-tg", handleTestTG)
 		auth.GET("/settings/backup", handleBackup)
 		auth.POST("/settings/restore", handleRestore)
+
+		// 账号安全相关
+		auth.GET("/account", handleAccount)
+		auth.POST("/account/password", handleUpdatePassword)
 
 		auth.GET("/logs", handleLogs)
 		auth.GET("/logs/clear", handleClearLogs)
@@ -409,7 +415,7 @@ func main() {
 	}
 
 	fmt.Println("---------------------------------------")
-	fmt.Println("   Go DDNS Panel 已启动")
+	fmt.Println("   Go DDNS Panel (UI Enhanced) 已启动")
 	fmt.Println("   访问地址: http://localhost:8080")
 	fmt.Println("---------------------------------------")
 	r.Run(":8080")
@@ -512,7 +518,7 @@ func handleDashboard(c *gin.Context) {
 	var history []IPHistory
 	db.Order("created_at desc").Limit(10).Find(&history)
 
-	stats := DashboardStats{TotalDomains: int64(len(domains)), LastRunTime: "从未"}
+	stats := DashboardStats{TotalDomains: int64(len(domains)), LastRunTime: "等待同步"}
 	if !lastRunTime.IsZero() {
 		stats.LastRunTime = lastRunTime.Format("15:04:05")
 	}
@@ -532,23 +538,32 @@ func handleDashboard(c *gin.Context) {
 	})
 }
 
+// 新增处理函数：渲染账号管理页面
+func handleAccount(c *gin.Context) {
+	username := sessions.Default(c).Get("user").(string)
+	sess := sessions.Default(c)
+	flashes := sess.Flashes()
+	sess.Save()
+	c.HTML(200, "account", gin.H{"Page": "account", "Username": username, "Flashes": flashes})
+}
+
 func handleUpdatePassword(c *gin.Context) {
 	username := sessions.Default(c).Get("user").(string)
 	oldPass, newPass := c.PostForm("old_password"), c.PostForm("new_password")
 	var user User
 	if db.Where("username = ?", username).First(&user).Error != nil {
 		setFlash(c, "error", "用户不存在")
-		c.Redirect(302, "/settings")
+		c.Redirect(302, "/account")
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPass)) != nil {
 		setFlash(c, "error", "原密码错误")
-		c.Redirect(302, "/settings")
+		c.Redirect(302, "/account")
 		return
 	}
 	if len(newPass) < 5 {
 		setFlash(c, "error", "新密码太短")
-		c.Redirect(302, "/settings")
+		c.Redirect(302, "/account")
 		return
 	}
 	h, _ := bcrypt.GenerateFromPassword([]byte(newPass), bcrypt.DefaultCost)
@@ -676,11 +691,13 @@ func handleAddDomain(c *gin.Context) {
 	}
 
 	ipSource := c.PostForm("ip_source")
-	if ipSource == "" { ipSource = "api" }
+	if ipSource == "" {
+		ipSource = "api"
+	}
 
 	db.Create(&Domain{
 		ZoneID: zoneID, RecordName: recordName,
-		RecordType: c.PostForm("record_type"), Proxied: c.PostForm("proxied") == "on", 
+		RecordType: c.PostForm("record_type"), Proxied: c.PostForm("proxied") == "on",
 		Status: "Pending", IPSource: ipSource, InterfaceName: c.PostForm("interface_name"),
 	})
 	go runDDNS()
@@ -732,308 +749,343 @@ func handleForceSync(c *gin.Context) {
 	c.Redirect(302, "/")
 }
 
-// ================= UI 优化版模板 =================
+// ================= HTML 模板 =================
 
 const commonHeaderHTML = `
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh" class="h-100">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DDNS Master</title>
+    <title>DDNS Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.12.0/dist/cdn.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@sweetalert2/theme-bootstrap-4/bootstrap-4.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
     <style>
         :root {
-            --primary-color: #6366f1; /* Indigo */
-            --primary-hover: #4f46e5;
-            --sidebar-bg: #1e1e2d;
-            --sidebar-text: #a2a3b7;
-            --sidebar-active-bg: rgba(255, 255, 255, 0.08);
-            --sidebar-active-text: #ffffff;
-            --body-bg: #f5f8fa;
-            --card-border-radius: 12px;
-            --font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            --primary: #4f46e5;
+            --primary-light: #e0e7ff;
+            --primary-hover: #4338ca;
+            --bg-body: #f8fafc;
+            --sidebar-width: 280px;
+            --sidebar-bg: #1e293b;
+            --card-radius: 16px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         body {
-            background-color: var(--body-bg);
-            font-family: var(--font-family);
-            color: #3f4254;
-            font-size: 0.925rem;
+            background-color: var(--bg-body);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            color: #334155;
+            height: 100%;
+            -webkit-font-smoothing: antialiased;
         }
 
-        /* 侧边栏样式优化 */
-        .wrapper { display: flex; min-height: 100vh; }
+        /* === 侧边栏 === */
         .sidebar {
-            width: 260px;
-            background-color: var(--sidebar-bg);
-            color: var(--sidebar-text);
+            width: var(--sidebar-width);
+            background: var(--sidebar-bg);
+            color: #94a3b8;
             position: fixed;
+            top: 0;
+            left: 0;
             height: 100vh;
-            z-index: 1000;
-            transition: all 0.3s ease;
+            z-index: 1040;
+            transition: var(--transition);
             display: flex;
             flex-direction: column;
+            border-right: 1px solid rgba(255,255,255,0.05);
         }
         
         .brand {
-            height: 70px;
+            height: 80px;
             display: flex;
             align-items: center;
-            padding: 0 25px;
-            font-size: 1.25rem;
+            padding: 0 32px;
+            font-size: 1.4rem;
             font-weight: 700;
             color: #fff;
             text-decoration: none;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
+            letter-spacing: -0.5px;
         }
-        .brand i { color: var(--primary-color); margin-right: 10px; font-size: 1.4rem; }
+        
+        .nav-menu {
+            padding: 0 16px;
+            flex-grow: 1;
+        }
 
-        .nav-menu { padding: 20px 10px; flex-grow: 1; }
         .nav-link {
-            color: var(--sidebar-text);
-            padding: 12px 20px;
-            margin-bottom: 5px;
-            border-radius: 8px;
-            font-weight: 500;
+            color: #94a3b8;
+            padding: 14px 20px;
+            margin-bottom: 8px;
+            border-radius: 12px;
             display: flex;
             align-items: center;
-            transition: all 0.2s;
+            font-weight: 500;
+            transition: var(--transition);
         }
+        
         .nav-link:hover {
             color: #fff;
-            background-color: rgba(255,255,255,0.04);
+            background: rgba(255,255,255,0.08);
+            transform: translateX(4px);
         }
+        
         .nav-link.active {
-            color: var(--sidebar-active-text);
-            background-color: var(--sidebar-active-bg);
+            color: #fff;
+            background: var(--primary);
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
         }
-        .nav-link i { margin-right: 12px; font-size: 1.1rem; }
+        
+        .nav-link i { margin-right: 14px; font-size: 1.2rem; }
 
-        .sidebar-footer {
-            padding: 20px;
-            border-top: 1px solid rgba(255,255,255,0.05);
-        }
-
-        /* 内容区域 */
-        .content {
-            flex: 1;
-            margin-left: 260px;
-            padding: 30px;
-            transition: all 0.3s;
+        /* === 主内容区 === */
+        .main-wrapper {
+            margin-left: var(--sidebar-width);
+            transition: margin-left 0.3s ease;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
 
-        /* 卡片优化 */
+        /* === 顶部导航 === */
+        .top-navbar {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            height: 80px;
+            padding: 0 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 1030;
+            border-bottom: 1px solid rgba(0,0,0,0.03);
+        }
+
+        /* === 组件通用 === */
         .card {
             border: none;
-            border-radius: var(--card-border-radius);
-            box-shadow: 0 0 20px 0 rgba(76, 87, 125, 0.02);
+            border-radius: var(--card-radius);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 10px 15px -3px rgba(0, 0, 0, 0.03);
             background: #fff;
-            margin-bottom: 24px;
+            transition: var(--transition);
+            overflow: hidden;
         }
-        .card-header {
-            background: transparent;
-            border-bottom: 1px solid #f0f0f0;
-            padding: 20px 25px;
-            font-weight: 600;
-            font-size: 1.05rem;
-            color: #181c32;
+        
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
         }
-        .card-body { padding: 25px; }
 
-        /* 按钮优化 */
-        .btn {
-            border-radius: 6px;
-            padding: 0.55rem 1.25rem;
-            font-weight: 500;
-            border: none;
-        }
-        .btn-primary { background-color: var(--primary-color); }
-        .btn-primary:hover { background-color: var(--primary-hover); }
-        .btn-light-primary {
-            background-color: #e0e7ff;
-            color: var(--primary-color);
-        }
-        .btn-light-primary:hover {
-            background-color: #c7d2fe;
-            color: var(--primary-hover);
-        }
-        .btn-outline-secondary { border: 1px solid #e4e6ef; color: #7e8299; }
-        .btn-outline-secondary:hover { background-color: #f5f8fa; color: #3f4254; border-color: #e4e6ef; }
+        .btn { border-radius: 10px; padding: 0.6rem 1.2rem; font-weight: 600; letter-spacing: 0.3px; transition: var(--transition); }
+        .btn-primary { background-color: var(--primary); border-color: var(--primary); box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2); }
+        .btn-primary:hover { background-color: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 6px 10px -1px rgba(79, 70, 229, 0.3); }
+        .btn-light-primary { background: var(--primary-light); color: var(--primary); border: none; }
+        .btn-light-primary:hover { background: #dbeafe; color: var(--primary-hover); }
 
-        /* 表格优化 */
-        .table thead th {
-            text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.05em;
-            color: #b5b5c3;
-            font-weight: 600;
-            border-bottom-width: 1px;
-            padding: 15px 25px;
-        }
-        .table tbody td {
-            padding: 18px 25px;
-            vertical-align: middle;
-            color: #3f4254;
-            font-weight: 500;
-            border-bottom-color: #f0f0f0;
-        }
-        .table-hover tbody tr:hover { background-color: #f9f9f9; }
+        .table thead th { background: #f8fafc; text-transform: uppercase; font-size: 0.7rem; color: #64748b; font-weight: 700; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; }
+        .table tbody td { padding: 20px 24px; vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #475569; font-weight: 500; }
+        .badge { font-weight: 600; padding: 0.5em 1em; border-radius: 6px; letter-spacing: 0.3px; }
+        .form-control, .form-select { border-color: #e2e8f0; border-radius: 10px; padding: 0.75rem 1rem; background-color: #f8fafc; transition: var(--transition); }
+        .form-control:focus, .form-select:focus { background-color: #fff; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1); }
 
-        /* 状态徽章 */
-        .badge { padding: 0.5em 0.8em; font-weight: 600; }
-        .bg-light-success { background-color: #e8fff3; color: #50cd89; }
-        .bg-light-danger { background-color: #fff5f8; color: #f1416c; }
-        .bg-light-warning { background-color: #fff8dd; color: #ffc700; }
-        .bg-light-info { background-color: #f8f5ff; color: #7239ea; }
-
-        /* 输入框 */
-        .form-control, .form-select {
-            border-color: #e4e6ef;
-            color: #5e6278;
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            box-shadow: none !important;
-        }
-        .form-control:focus, .form-select:focus {
-            border-color: var(--primary-color);
-            background-color: #fcfcfc;
-        }
-        .form-label { color: #3f4254; font-weight: 500; margin-bottom: 0.5rem; }
-
-        /* 移动端适配：已移除 mobile-toggle 相关控制逻辑，改为默认常驻或通过侧边栏宽度控制 */
-        @media (max-width: 991px) {
-            .sidebar { transform: translateX(-100%); width: 260px; }
-            .content { margin-left: 0; }
-            .sidebar.show { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,0.1); }
+        @media (max-width: 991.98px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.show { transform: translateX(0); }
+            .main-wrapper { margin-left: 0; }
+            .top-navbar { padding: 0 20px; }
         }
     </style>
 </head>
-<body>
-    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1070">
-    {{ range $key, $val := .Flashes }}
-        {{ range $msg := $val }}
-        <div class="toast show align-items-center border-0 shadow-sm mb-3" role="alert" aria-live="assertive" aria-atomic="true">
-            <div class="d-flex">
-                <div class="toast-body d-flex align-items-center">
-                    <i class="bi {{ if eq $key "error" }}bi-x-circle-fill text-danger{{ else }}bi-check-circle-fill text-success{{ end }} fs-5 me-3"></i>
-                    <div>{{ $msg }}</div>
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-            </div>
-        </div>
-        {{ end }}
-    {{ end }}
-    </div>
+<body x-data="{ sidebarOpen: false }">
 
-    <div class="wrapper">
-        <div class="sidebar">
-            <a href="/" class="brand">
-                <i class="bi bi-hdd-network"></i> DDNS Master
+    <aside class="sidebar" :class="{ 'show': sidebarOpen }">
+        <a href="/" class="brand">
+            <i class="bi bi-cloud-lightning-fill text-primary me-2 fs-3"></i> 
+            <span style="background: linear-gradient(90deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">DDNS Pro</span>
+        </a>
+        
+        <div class="nav-menu mt-2">
+            <small class="text-uppercase fw-bold px-3 mb-2 d-block" style="font-size: 0.7rem; letter-spacing: 1px; color: #475569;">Menu</small>
+            <a href="/" class="nav-link {{ if eq .Page "dashboard" }}active{{ end }}">
+                <i class="bi bi-grid-1x2-fill"></i> 概览仪表盘
             </a>
-            <div class="nav-menu">
-                <a href="/" class="nav-link {{ if eq .Page "dashboard" }}active{{ end }}">
-                    <i class="bi bi-grid"></i> 仪表盘
-                </a>
-                <a href="/settings" class="nav-link {{ if eq .Page "settings" }}active{{ end }}">
-                    <i class="bi bi-sliders"></i> 系统配置
-                </a>
-                <a href="/logs" class="nav-link {{ if eq .Page "logs" }}active{{ end }}">
-                    <i class="bi bi-journal-text"></i> 运行日志
-                </a>
-            </div>
-            <div class="sidebar-footer">
-                <a href="/logout" class="nav-link text-danger p-0" style="justify-content: flex-start;">
-                    <i class="bi bi-box-arrow-left"></i> 退出登录
-                </a>
-            </div>
+            <a href="/settings" class="nav-link {{ if eq .Page "settings" }}active{{ end }}">
+                <i class="bi bi-gear-fill"></i> 系统配置
+            </a>
+            <a href="/logs" class="nav-link {{ if eq .Page "logs" }}active{{ end }}">
+                <i class="bi bi-file-text-fill"></i> 运行日志
+            </a>
         </div>
-        <div class="content">
+    </aside>
+
+    <div x-show="sidebarOpen" @click="sidebarOpen = false" class="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-50" style="z-index: 1035; display: none;" x-transition.opacity></div>
+
+    <div class="main-wrapper">
+        <header class="top-navbar">
+            <div class="d-flex align-items-center">
+                <button class="btn btn-icon btn-light d-lg-none me-3" @click="sidebarOpen = !sidebarOpen">
+                    <i class="bi bi-list fs-4"></i>
+                </button>
+                <div>
+                    <h5 class="mb-0 fw-bold text-dark d-none d-sm-block" style="letter-spacing: -0.5px;">
+                        {{ if eq .Page "dashboard" }}仪表盘{{ else if eq .Page "settings" }}系统设置{{ else if eq .Page "account" }}账号管理{{ else }}运行日志{{ end }}
+                    </h5>
+                    <small class="text-muted d-none d-sm-block" style="font-size: 0.8rem;">Welcome back, Administrator</small>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-4">
+                <a href="https://github.com/jinhuaitao/DDNS" target="_blank" class="text-secondary opacity-50 hover-primary transition" title="Github Repo">
+                    <i class="bi bi-github fs-5"></i>
+                </a>
+                <div class="dropdown">
+                    <a href="#" class="d-flex align-items-center text-decoration-none" data-bs-toggle="dropdown">
+                        <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold shadow-sm" 
+                             style="width: 42px; height: 42px; border: 2px solid #e0e7ff;">A</div>
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end border-0 shadow-lg p-2" style="border-radius: 12px; min-width: 200px;">
+                        <li><h6 class="dropdown-header">账户操作</h6></li>
+                        <li><a class="dropdown-item rounded" href="/account"><i class="bi bi-shield-lock me-2"></i>账号设置</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item rounded text-danger" href="/logout"><i class="bi bi-box-arrow-right me-2"></i>退出登录</a></li>
+                    </ul>
+                </div>
+            </div>
+        </header>
+
+        <main class="p-4 p-md-5 flex-grow-1">
 `
 
 const commonFooterHTML = `
-        </div>
+        </main>
+        
+        <footer class="text-center py-4 text-muted small">
+            &copy; 2024 DDNS Pro Panel. Powered by Go & Gin.
+        </footer>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
     <script>
-        // 自动隐藏 Toast
-        setTimeout(() => { document.querySelectorAll('.toast').forEach(el => el.classList.remove('show')); }, 4000);
+        const Toast = Swal.mixin({
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            didOpen: (toast) => {
+                toast.addEventListener('mouseenter', Swal.stopTimer)
+                toast.addEventListener('mouseleave', Swal.resumeTimer)
+            }
+        });
+
+        // Go Flash 消息桥接
+        {{ range $key, $val := .Flashes }}
+            {{ range $msg := $val }}
+                Toast.fire({
+                    icon: '{{ if eq $key "error" }}error{{ else }}success{{ end }}',
+                    title: '{{ $msg }}'
+                });
+            {{ end }}
+        {{ end }}
+
+        // 删除确认通用函数
+        function confirmDel(url, name) {
+            Swal.fire({
+                title: '确定删除?',
+                text: "即将删除域名 " + name + "，此操作不可恢复!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: '是的，删除它!',
+                cancelButtonText: '取消'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.location.href = url;
+                }
+            })
+            return false;
+        }
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 `
 
 const dashboardHTML = `
 {{ template "common_header" . }}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h3 class="fw-bold m-0 text-dark">概览</h3>
-        <p class="text-muted small m-0">系统运行状态监控</p>
-    </div>
-    <div>
-        <a href="/domain/sync" class="btn btn-light-primary me-2"><i class="bi bi-arrow-clockwise me-1"></i> 立即同步</a>
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi bi-plus-lg me-1"></i> 添加域名</button>
-    </div>
-</div>
 
-<div class="row g-4 mb-4">
+<div class="row g-4 mb-5">
     <div class="col-md-4">
-        <div class="card h-100">
+        <div class="card stat-card h-100 p-3">
             <div class="card-body d-flex align-items-center">
-                <div class="rounded-3 p-3 d-flex align-items-center justify-content-center" style="background: rgba(99, 102, 241, 0.1); color: #6366f1; width: 60px; height: 60px;">
-                    <i class="bi bi-globe fs-2"></i>
+                <div class="flex-grow-1">
+                    <p class="text-muted small text-uppercase fw-bold mb-1 tracking-wider">托管域名</p>
+                    <h2 class="mb-0 fw-bold text-dark display-6">{{ .Stats.TotalDomains }}</h2>
                 </div>
-                <div class="ms-4">
-                    <div class="text-muted small fw-bold text-uppercase ls-1">托管域名</div>
-                    <div class="fs-2 fw-bold text-dark">{{ .Stats.TotalDomains }}</div>
+                <div class="bg-primary bg-opacity-10 p-3 rounded-4 text-primary d-flex align-items-center justify-content-center" style="width: 64px; height: 64px;">
+                    <i class="bi bi-globe2 fs-2"></i>
                 </div>
             </div>
         </div>
     </div>
     <div class="col-md-4">
-        <div class="card h-100">
+        <div class="card stat-card h-100 p-3">
             <div class="card-body d-flex align-items-center">
-                <div class="rounded-3 p-3 d-flex align-items-center justify-content-center" style="background: rgba(80, 205, 137, 0.1); color: #50cd89; width: 60px; height: 60px;">
-                    <i class="bi bi-check-circle fs-2"></i>
+                <div class="flex-grow-1">
+                    <p class="text-muted small text-uppercase fw-bold mb-1 tracking-wider">同步正常</p>
+                    <h2 class="mb-0 fw-bold text-success display-6">{{ .Stats.SuccessCount }}</h2>
                 </div>
-                <div class="ms-4">
-                    <div class="text-muted small fw-bold text-uppercase ls-1">状态正常</div>
-                    <div class="fs-2 fw-bold text-dark">{{ .Stats.SuccessCount }}</div>
+                <div class="bg-success bg-opacity-10 p-3 rounded-4 text-success d-flex align-items-center justify-content-center" style="width: 64px; height: 64px;">
+                    <i class="bi bi-check-circle-fill fs-2"></i>
                 </div>
             </div>
         </div>
     </div>
     <div class="col-md-4">
-        <div class="card h-100">
+        <div class="card stat-card h-100 p-3">
             <div class="card-body d-flex align-items-center">
-                <div class="rounded-3 p-3 d-flex align-items-center justify-content-center" style="background: rgba(241, 65, 108, 0.1); color: #f1416c; width: 60px; height: 60px;">
+                <div class="flex-grow-1">
+                    <p class="text-muted small text-uppercase fw-bold mb-1 tracking-wider">上次运行</p>
+                    <h4 class="mb-0 fw-bold text-dark fs-4">{{ .Stats.LastRunTime }}</h4>
+                </div>
+                <div class="bg-info bg-opacity-10 p-3 rounded-4 text-info d-flex align-items-center justify-content-center" style="width: 64px; height: 64px;">
                     <i class="bi bi-activity fs-2"></i>
                 </div>
-                <div class="ms-4">
-                    <div class="text-muted small fw-bold text-uppercase ls-1">上次同步</div>
-                    <div class="fs-5 fw-bold text-dark">{{ .Stats.LastRunTime }}</div>
-                </div>
             </div>
         </div>
     </div>
 </div>
 
-<div class="card mb-4">
-    <div class="card-header d-flex align-items-center justify-content-between">
-        <span>域名列表</span>
-        <span class="badge bg-light text-muted border">自动同步中</span>
+<div class="card mb-5">
+    <div class="card-header bg-white py-4 px-4 border-0 d-flex justify-content-between align-items-center">
+        <div>
+            <h5 class="mb-1 fw-bold">域名管理</h5>
+            <small class="text-muted">管理您的 DNS 解析记录与 CDN 状态</small>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="/domain/sync" class="btn btn-light btn-sm d-flex align-items-center gap-2 px-3">
+                <i class="bi bi-arrow-repeat"></i> 立即同步
+            </a>
+            <button class="btn btn-primary btn-sm shadow-sm d-flex align-items-center gap-2 px-3" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg"></i> 添加域名
+            </button>
+        </div>
     </div>
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead>
                 <tr>
-                    <th class="ps-4">域名信息</th>
+                    <th class="ps-4">记录名称 / ZoneID</th>
                     <th>类型</th>
-                    <th>来源</th>
-                    <th>代理</th>
-                    <th>当前 IP</th>
+                    <th>IP 来源</th>
+                    <th>Cloudflare CDN</th>
+                    <th>当前解析 IP</th>
                     <th>状态</th>
                     <th class="text-end pe-4">操作</th>
                 </tr>
@@ -1043,63 +1095,72 @@ const dashboardHTML = `
                 <tr>
                     <td class="ps-4">
                         <div class="fw-bold text-dark fs-6">{{ .RecordName }}</div>
-                        <div class="text-muted small text-truncate" style="max-width: 150px;">ID: {{ .ZoneID }}</div>
+                        <div class="text-muted small font-monospace opacity-75 mt-1">{{ if .ZoneID }}{{ .ZoneID }}{{ else }}待获取...{{ end }}</div>
                     </td>
-                    <td>
-                        {{ if eq .RecordType "AAAA" }}
-                        <span class="badge bg-light text-dark border">IPv6</span>
-                        {{ else }}
-                        <span class="badge bg-light-info">IPv4</span>
-                        {{ end }}
-                    </td>
+                    <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-10">{{ .RecordType }}</span></td>
                     <td>
                         {{ if eq .IPSource "interface" }}
-                        <span class="badge bg-light text-secondary border"><i class="bi bi-ethernet me-1"></i>{{ .InterfaceName }}</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-ethernet text-primary"></i>
+                            <span class="small fw-bold text-muted">{{ .InterfaceName }}</span>
+                        </div>
                         {{ else }}
-                        <span class="badge bg-light text-secondary border"><i class="bi bi-cloud me-1"></i>Web API</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-globe text-info"></i>
+                            <span class="small fw-bold text-muted">Web API</span>
+                        </div>
                         {{ end }}
                     </td>
                     <td>
                         {{ if .Proxied }}
-                        <i class="bi bi-cloud-check-fill text-warning fs-4" data-bs-toggle="tooltip" title="CDN开启"></i>
+                        <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-10 px-3 py-2 rounded-pill">
+                            <i class="bi bi-cloud-check-fill me-1"></i> 已开启
+                        </span>
                         {{ else }}
-                        <i class="bi bi-cloud-slash text-muted fs-4" data-bs-toggle="tooltip" title="直连"></i>
+                        <span class="badge bg-light text-muted border px-3 py-2 rounded-pill">
+                            <i class="bi bi-cloud-slash me-1"></i> 直连
+                        </span>
                         {{ end }}
                     </td>
-                    <td>
-                        <span class="font-monospace text-secondary fw-bold small">{{ if .LastIP }}{{ .LastIP }}{{ else }}<span class="text-muted fst-italic">等待获取...</span>{{ end }}</span>
-                    </td>
+                    <td class="font-monospace fw-bold text-dark">{{ if .LastIP }}{{ .LastIP }}{{ else }}<span class="text-muted fw-normal fst-italic">Waiting...</span>{{ end }}</td>
                     <td>
                         {{ if eq .Status "Synced" }}
-                            <span class="badge bg-light-success">已同步</span>
+                            <span class="badge bg-success bg-opacity-10 text-success px-3 py-2 rounded-pill">
+                                <span class="spinner-grow spinner-grow-sm me-1" style="width: 0.4rem; height: 0.4rem; --bs-spinner-animation-speed: 2s;"></span>正常
+                            </span>
                         {{ else if eq .Status "Error" }}
-                            <span class="badge bg-light-danger">错误</span>
-                            <i class="bi bi-info-circle ms-1 text-danger" title="{{ .LastMsg }}"></i>
+                            <span class="badge bg-danger bg-opacity-10 text-danger px-3 py-2 rounded-pill" data-bs-toggle="tooltip" title="{{ .LastMsg }}">
+                                <i class="bi bi-exclamation-circle me-1"></i> 错误
+                            </span>
                         {{ else }}
-                            <span class="badge bg-light-warning text-warning">等待中</span>
+                            <span class="badge bg-warning bg-opacity-10 text-warning px-3 py-2 rounded-pill">等待中</span>
                         {{ end }}
                     </td>
                     <td class="text-end pe-4">
-                        <button class="btn btn-icon btn-sm btn-light-primary me-2 btn-edit" 
-                                data-id="{{ .ID }}" 
-                                data-name="{{ .RecordName }}" 
-                                data-type="{{ .RecordType }}" 
-                                data-proxied="{{ .Proxied }}"
-                                data-ipsource="{{ .IPSource }}"
-                                data-interface="{{ .InterfaceName }}"
-                                data-bs-toggle="modal" data-bs-target="#editModal">
-                            <i class="bi bi-pencil-fill"></i>
-                        </button>
-                        <a href="/domain/delete/{{ .ID }}" class="btn btn-icon btn-sm btn-light-danger" onclick="return confirm('确定要删除 {{ .RecordName }} 吗?')">
-                            <i class="bi bi-trash-fill"></i>
-                        </a>
+                        <div class="btn-group">
+                            <button class="btn btn-icon btn-sm btn-light text-primary btn-edit" 
+                                    data-id="{{ .ID }}" 
+                                    data-name="{{ .RecordName }}" 
+                                    data-type="{{ .RecordType }}" 
+                                    data-proxied="{{ .Proxied }}"
+                                    data-ipsource="{{ .IPSource }}"
+                                    data-interface="{{ .InterfaceName }}"
+                                    style="border-top-right-radius: 0; border-bottom-right-radius: 0;">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            <button class="btn btn-icon btn-sm btn-light text-danger" 
+                                    style="border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid #e2e8f0;"
+                                    onclick="confirmDel('/domain/delete/{{ .ID }}', '{{ .RecordName }}')">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
                     </td>
                 </tr>
                 {{ else }}
                 <tr>
-                    <td colspan="7" class="text-center py-5">
-                        <div class="text-muted mb-2"><i class="bi bi-inbox fs-1 opacity-50"></i></div>
-                        <div class="text-muted">暂无域名，请点击右上角添加</div>
+                    <td colspan="7" class="text-center py-5 text-muted">
+                        <div class="mb-3"><i class="bi bi-inbox-fill fs-1 text-light"></i></div>
+                        <p class="mb-0">暂无域名，请点击右上角添加</p>
                     </td>
                 </tr>
                 {{ end }}
@@ -1109,31 +1170,39 @@ const dashboardHTML = `
 </div>
 
 <div class="card">
-    <div class="card-header">
-        <i class="bi bi-clock-history me-2 text-primary"></i> 最近变动
+    <div class="card-header bg-white py-4 px-4 border-0">
+        <h6 class="mb-0 fw-bold d-flex align-items-center">
+            <span class="bg-primary rounded-circle p-1 me-2" style="width: 8px; height: 8px; display: inline-block;"></span>
+            最近 IP 变更记录
+        </h6>
     </div>
     <div class="list-group list-group-flush">
         {{ range .History }}
-        <div class="list-group-item p-3 border-0 border-bottom">
+        <div class="list-group-item px-4 py-3 border-light list-group-item-action">
             <div class="d-flex justify-content-between align-items-center">
                 <div class="d-flex align-items-center">
-                    <div class="me-3 d-flex flex-column align-items-center text-muted small" style="min-width: 50px;">
-                         <span>{{ .CreatedAt.Format "15:04" }}</span>
-                         <span style="font-size: 0.7rem;">{{ .CreatedAt.Format "01-02" }}</span>
+                    <div class="bg-light p-2 rounded me-3 text-secondary">
+                        <i class="bi bi-arrow-left-right"></i>
                     </div>
                     <div>
-                        <div class="fw-bold text-dark">{{ .RecordName }} <span class="badge bg-light text-muted border ms-1" style="font-size: 0.7em;">{{ .RecordType }}</span></div>
-                        <div class="font-monospace small mt-1">
-                            <span class="text-muted text-decoration-line-through me-2">{{ .OldIP }}</span>
-                            <i class="bi bi-arrow-right text-primary me-2"></i>
-                            <span class="text-success fw-bold">{{ .NewIP }}</span>
+                        <div class="fw-bold text-dark">{{ .RecordName }} <span class="badge bg-secondary bg-opacity-10 text-secondary ms-1" style="font-size: 0.65rem;">{{ .RecordType }}</span></div>
+                        <div class="small font-monospace mt-1">
+                            <span class="text-muted">{{ .OldIP }}</span>
+                            <i class="bi bi-arrow-right-short mx-2 text-primary"></i>
+                            <span class="text-dark fw-bold">{{ .NewIP }}</span>
                         </div>
                     </div>
+                </div>
+                <div class="text-end">
+                    <div class="fw-bold text-dark" style="font-size: 0.9rem;">{{ .CreatedAt.Format "15:04" }}</div>
+                    <div class="text-muted small" style="font-size: 0.75rem;">{{ .CreatedAt.Format "01-02" }}</div>
                 </div>
             </div>
         </div>
         {{ else }}
-        <div class="p-4 text-center text-muted small">暂无 IP 变动历史</div>
+        <div class="p-5 text-center text-muted small">
+            暂无历史记录
+        </div>
         {{ end }}
     </div>
 </div>
@@ -1141,48 +1210,57 @@ const dashboardHTML = `
 <div class="modal fade" id="addModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <form action="/domain/add" method="POST" class="w-100">
-            <div class="modal-content shadow-lg">
-                <div class="modal-header">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0 px-4 pt-4">
                     <h5 class="modal-title fw-bold">添加域名</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label">记录类型</label>
-                        <select name="record_type" class="form-select">
+                    <div class="mb-4">
+                        <label class="form-label small text-muted text-uppercase fw-bold">DNS 记录类型</label>
+                        <select name="record_type" class="form-select bg-light border-0 py-2">
                             <option value="A">IPv4 (A 记录)</option>
                             <option value="AAAA">IPv6 (AAAA 记录)</option>
                         </select>
                     </div>
                     
-                    <div class="mb-3">
-                        <label class="form-label">完整域名</label>
-                        <input type="text" name="record_name" class="form-control" required placeholder="例如: vpn.example.com">
+                    <div class="mb-4">
+                        <label class="form-label small text-muted text-uppercase fw-bold">完整域名</label>
+                        <input type="text" name="record_name" class="form-control bg-light border-0 py-2" required placeholder="例如: vpn.example.com">
                     </div>
 
-                    <div class="mb-3">
-                         <label class="form-label">IP 获取来源</label>
-                         <select name="ip_source" class="form-select ip-source-select" data-target="add_iface_div">
-                            <option value="api">外部 API (ipify.org 等)</option>
-                            <option value="interface">网卡接口 (Interface)</option>
-                         </select>
+                    <div class="mb-4" x-data="{ source: 'api' }">
+                         <label class="form-label small text-muted text-uppercase fw-bold">IP 获取方式</label>
+                         <div class="d-flex gap-2 mb-2">
+                             <div class="form-check form-check-inline border rounded p-2 px-3 m-0 flex-fill text-center cursor-pointer" :class="source === 'api' ? 'border-primary bg-primary bg-opacity-10 text-primary' : 'bg-light border-0'">
+                                <input class="form-check-input d-none" type="radio" name="ip_source" id="src_api" value="api" x-model="source">
+                                <label class="form-check-label w-100" for="src_api" style="cursor: pointer;">Web API</label>
+                             </div>
+                             <div class="form-check form-check-inline border rounded p-2 px-3 m-0 flex-fill text-center cursor-pointer" :class="source === 'interface' ? 'border-primary bg-primary bg-opacity-10 text-primary' : 'bg-light border-0'">
+                                <input class="form-check-input d-none" type="radio" name="ip_source" id="src_iface" value="interface" x-model="source">
+                                <label class="form-check-label w-100" for="src_iface" style="cursor: pointer;">网卡接口</label>
+                             </div>
+                         </div>
                          
-                         <div id="add_iface_div" class="mt-3 d-none p-3 bg-light rounded border border-dashed">
-                            <label class="form-label small text-muted mb-2">选择网卡接口</label>
-                            <select name="interface_name" class="form-select iface-list-select">
+                         <div x-show="source === 'interface'" class="p-3 bg-light rounded mt-2" style="display: none;">
+                            <label class="form-label small mb-1">选择网卡</label>
+                            <select name="interface_name" class="form-select form-select-sm iface-list-select bg-white">
                                 <option value="" disabled selected>加载中...</option>
                             </select>
                          </div>
                     </div>
                     
-                    <div class="form-check form-switch mt-4">
-                        <input class="form-check-input" type="checkbox" name="proxied" id="pchk">
-                        <label class="form-check-label fw-medium ms-2" for="pchk">Cloudflare CDN (小黄云)</label>
+                    <div class="form-check form-switch p-3 bg-light rounded d-flex align-items-center justify-content-between px-3">
+                        <div>
+                            <label class="form-check-label fw-bold mb-0 text-dark" for="pchk">Cloudflare CDN</label>
+                            <div class="small text-muted" style="font-size: 0.75rem;">开启后 IP 将被隐藏</div>
+                        </div>
+                        <input class="form-check-input ms-0" type="checkbox" name="proxied" id="pchk" style="width: 3em; height: 1.5em;">
                     </div>
                 </div>
-                <div class="modal-footer p-3 bg-light">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-primary">确认添加</button>
+                <div class="modal-footer border-0 pt-0 px-4 pb-4">
+                    <button type="button" class="btn btn-light text-muted" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary px-4">确认添加</button>
                 </div>
             </div>
         </form>
@@ -1193,44 +1271,47 @@ const dashboardHTML = `
     <div class="modal-dialog modal-dialog-centered">
         <form action="/domain/update" method="POST" class="w-100">
             <input type="hidden" name="id" id="edit_id">
-            <div class="modal-content shadow-lg">
-                <div class="modal-header">
-                    <h5 class="modal-title fw-bold">编辑域名</h5>
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0 px-4 pt-4">
+                    <h5 class="modal-title fw-bold">编辑配置</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label">记录类型</label>
-                        <select name="record_type" id="edit_type" class="form-select">
-                            <option value="A">IPv4 (A 记录)</option>
-                            <option value="AAAA">IPv6 (AAAA 记录)</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">完整域名</label>
-                        <input type="text" name="record_name" id="edit_name" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                         <label class="form-label">IP 获取来源</label>
-                         <select name="ip_source" id="edit_ip_source" class="form-select ip-source-select" data-target="edit_iface_div">
-                            <option value="api">外部 API</option>
-                            <option value="interface">网卡接口</option>
-                         </select>
-                         <div id="edit_iface_div" class="mt-3 d-none p-3 bg-light rounded border border-dashed">
-                            <label class="form-label small text-muted mb-2">选择网卡接口</label>
-                            <select name="interface_name" id="edit_interface" class="form-select iface-list-select">
-                                <option value="" disabled selected>加载中...</option>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted fw-bold">类型</label>
+                            <select name="record_type" id="edit_type" class="form-select bg-light border-0">
+                                <option value="A">A (IPv4)</option>
+                                <option value="AAAA">AAAA (IPv6)</option>
                             </select>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label small text-muted fw-bold">域名</label>
+                            <input type="text" name="record_name" id="edit_name" class="form-control bg-light border-0" required>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                         <label class="form-label small text-muted fw-bold">IP 来源</label>
+                         <select name="ip_source" id="edit_ip_source" class="form-select bg-light border-0 ip-source-select" data-target="edit_iface_div">
+                            <option value="api">Web API</option>
+                            <option value="interface">本机网卡</option>
+                         </select>
+                         <div id="edit_iface_div" class="mt-2 p-3 bg-light rounded d-none">
+                            <label class="form-label small mb-1">网卡接口</label>
+                            <select name="interface_name" id="edit_interface" class="form-select form-select-sm iface-list-select bg-white"></select>
                          </div>
                     </div>
-                    <div class="form-check form-switch mt-4">
-                        <input class="form-check-input" type="checkbox" name="proxied" id="edit_proxied">
-                        <label class="form-check-label fw-medium ms-2" for="edit_proxied">Cloudflare CDN (小黄云)</label>
+                    <div class="form-check form-switch mt-4 p-3 bg-light rounded d-flex align-items-center justify-content-between px-3">
+                        <div>
+                            <label class="form-check-label fw-bold mb-0 text-dark" for="edit_proxied">Cloudflare CDN</label>
+                        </div>
+                        <input class="form-check-input ms-0" type="checkbox" name="proxied" id="edit_proxied" style="width: 3em; height: 1.5em;">
                     </div>
                 </div>
-                <div class="modal-footer p-3 bg-light">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-primary">保存修改</button>
+                <div class="modal-footer border-0 pt-0 px-4 pb-4">
+                    <button type="button" class="btn btn-light text-muted" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary px-4">保存修改</button>
                 </div>
             </div>
         </form>
@@ -1239,36 +1320,24 @@ const dashboardHTML = `
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // 网卡加载逻辑
-        function loadInterfaces() {
-            fetch('/api/interfaces')
-                .then(r => r.json())
-                .then(data => {
-                    document.querySelectorAll('.iface-list-select').forEach(select => {
-                        const currentVal = select.getAttribute('data-value') || '';
-                        select.innerHTML = '';
-                        data.forEach(iface => {
-                            const opt = document.createElement('option');
-                            opt.value = iface;
-                            opt.textContent = iface;
-                            if(iface === currentVal) opt.selected = true;
-                            select.appendChild(opt);
-                        });
-                    });
-                });
-        }
-        loadInterfaces();
+        const editModal = new bootstrap.Modal(document.getElementById('editModal'));
 
-        // 联动显示
-        document.querySelectorAll('.ip-source-select').forEach(el => {
-            el.addEventListener('change', function() {
-                const target = document.getElementById(this.getAttribute('data-target'));
-                if(this.value === 'interface') target.classList.remove('d-none');
-                else target.classList.add('d-none');
+        // 网卡加载
+        fetch('/api/interfaces').then(r => r.json()).then(data => {
+            document.querySelectorAll('.iface-list-select').forEach(select => {
+                const currentVal = select.getAttribute('data-value') || '';
+                select.innerHTML = '';
+                data.forEach(iface => {
+                    const opt = document.createElement('option');
+                    opt.value = iface;
+                    opt.textContent = iface;
+                    if(iface === currentVal) opt.selected = true;
+                    select.appendChild(opt);
+                });
             });
         });
 
-        // 编辑回显
+        // 原生 JS 处理编辑框回显
         document.querySelectorAll('.btn-edit').forEach(btn => {
             btn.addEventListener('click', function() {
                 document.getElementById('edit_id').value = this.dataset.id;
@@ -1279,12 +1348,23 @@ const dashboardHTML = `
                 const src = this.dataset.ipsource || 'api';
                 const sel = document.getElementById('edit_ip_source');
                 sel.value = src;
-                sel.dispatchEvent(new Event('change'));
+                
+                const ifaceDiv = document.getElementById('edit_iface_div');
+                if(src === 'interface') ifaceDiv.classList.remove('d-none');
+                else ifaceDiv.classList.add('d-none');
                 
                 const ifaceSel = document.getElementById('edit_interface');
                 ifaceSel.value = this.dataset.interface;
-                ifaceSel.setAttribute('data-value', this.dataset.interface);
+                
+                editModal.show();
             });
+        });
+
+        // 编辑框联动
+        document.getElementById('edit_ip_source').addEventListener('change', function(){
+             const ifaceDiv = document.getElementById('edit_iface_div');
+             if(this.value === 'interface') ifaceDiv.classList.remove('d-none');
+             else ifaceDiv.classList.add('d-none');
         });
     });
 </script>
@@ -1293,116 +1373,135 @@ const dashboardHTML = `
 
 const settingsHTML = `
 {{ template "common_header" . }}
-<div class="container-fluid p-0">
-    <div class="mb-4">
-        <h3 class="fw-bold m-0 text-dark">系统配置</h3>
-        <p class="text-muted small">系统运行参数与安全策略管理</p>
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center mb-4">
+                    <div class="bg-warning bg-opacity-10 p-3 rounded-circle text-warning me-3">
+                        <i class="bi bi-cloud-lightning fs-4"></i>
+                    </div>
+                    <div>
+                        <h6 class="fw-bold mb-0">Cloudflare API</h6>
+                        <small class="text-muted">核心连接配置</small>
+                    </div>
+                </div>
+                <form action="/settings/update" method="POST">
+                    <div class="mb-3">
+                        <label class="form-label small text-muted fw-bold">API Token</label>
+                        <input type="password" name="token" class="form-control" value="{{ .Setting.CFToken }}" placeholder="在此粘贴 API 令牌">
+                        <div class="form-text">令牌需要 <span class="badge bg-light text-dark border">Zone.DNS:Edit</span> 权限</div>
+                    </div>
+                    <input type="hidden" name="tg_token" value="{{ .Setting.TelegramBotToken }}">
+                    <input type="hidden" name="tg_chat_id" value="{{ .Setting.TelegramChatID }}">
+                    <button class="btn btn-primary w-100 mt-2">保存 Cloudflare 配置</button>
+                </form>
+            </div>
+        </div>
     </div>
 
-    <div class="row g-4">
-        <div class="col-md-6 col-xl-7">
-            <div class="card h-100">
-                <div class="card-header d-flex align-items-center">
-                    <div class="rounded-circle bg-light-info p-2 me-3">
-                        <i class="bi bi-cloud-check text-info"></i>
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center mb-4">
+                    <div class="bg-info bg-opacity-10 p-3 rounded-circle text-info me-3">
+                        <i class="bi bi-telegram fs-4"></i>
                     </div>
-                    <span>Cloudflare 核心对接</span>
+                    <div>
+                        <h6 class="fw-bold mb-0">Telegram 通知</h6>
+                        <small class="text-muted">IP 变动实时推送</small>
+                    </div>
                 </div>
-                <div class="card-body d-flex flex-column justify-content-center">
-                    <form action="/settings/update" method="POST" id="cfForm">
-                        <div class="mb-2">
-                            <label class="form-label small text-muted fw-bold">API Token</label>
-                            <div class="input-group">
-                                <input type="password" name="token" class="form-control" value="{{ .Setting.CFToken }}" placeholder="在此粘贴您的 Cloudflare Token">
-                                <button class="btn btn-primary px-4" type="submit">保存</button>
-                            </div>
+                <form action="/settings/update" method="POST">
+                    <input type="hidden" name="token" value="{{ .Setting.CFToken }}">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-7">
+                            <label class="form-label small text-muted fw-bold">Bot Token</label>
+                            <input type="text" name="tg_token" class="form-control" value="{{ .Setting.TelegramBotToken }}">
                         </div>
-                        <div class="form-text small"><i class="bi bi-info-circle me-1"></i>令牌需具备 Zone.DNS:Edit 权限</div>
+                        <div class="col-md-5">
+                            <label class="form-label small text-muted fw-bold">Chat ID</label>
+                            <input type="text" name="tg_chat_id" class="form-control" value="{{ .Setting.TelegramChatID }}">
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-2">
+                        <button type="submit" formaction="/settings/test-tg" class="btn btn-light-primary flex-grow-1">发送测试消息</button>
+                        <button type="submit" class="btn btn-primary flex-grow-1">保存配置</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center mb-4">
+                    <div class="bg-success bg-opacity-10 p-3 rounded-circle text-success me-3">
+                        <i class="bi bi-database fs-4"></i>
+                    </div>
+                    <div>
+                        <h6 class="fw-bold mb-0">备份与恢复</h6>
+                        <small class="text-muted">数据快照管理</small>
+                    </div>
+                </div>
+                <div class="d-grid gap-3">
+                    <a href="/settings/backup" class="btn btn-light border py-2">
+                        <i class="bi bi-download me-2"></i>导出配置 (JSON)
+                    </a>
+                    <form action="/settings/restore" method="POST" enctype="multipart/form-data" id="restoreForm">
+                        <input type="file" name="backup_file" id="bfile" class="d-none" onchange="document.getElementById('restoreForm').submit()" accept=".json">
+                        <label for="bfile" class="btn btn-light-success border-success border-opacity-25 w-100 mb-0 py-2">
+                            <i class="bi bi-upload me-2"></i>从文件恢复
+                        </label>
                     </form>
                 </div>
             </div>
         </div>
+    </div>
+</div>
+{{ template "common_footer" . }}
+`
 
-        <div class="col-md-6 col-xl-5">
-            <div class="card h-100">
-                <div class="card-header d-flex align-items-center">
-                    <div class="rounded-circle bg-light-danger p-2 me-3">
-                        <i class="bi bi-shield-lock text-danger"></i>
+const accountHTML = `
+{{ template "common_header" . }}
+<div class="row justify-content-center">
+    <div class="col-lg-6 col-md-8">
+        <div class="card h-100">
+            <div class="card-body p-4 p-md-5">
+                <div class="d-flex align-items-center mb-5">
+                    <div class="bg-danger bg-opacity-10 p-3 rounded-circle text-danger me-4">
+                        <i class="bi bi-shield-lock-fill fs-3"></i>
                     </div>
-                    <span>访问权限控制</span>
+                    <div>
+                        <h4 class="fw-bold mb-1">账号安全中心</h4>
+                        <p class="text-muted mb-0 small">定期修改密码以保护您的系统安全</p>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <form action="/settings/password" method="POST">
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <input type="password" name="old_password" class="form-control form-control-sm" placeholder="当前密码" required>
-                            </div>
-                            <div class="col-6">
-                                <input type="password" name="new_password" class="form-control form-control-sm" placeholder="新密码" required>
-                            </div>
-                            <div class="col-12">
-                                <button class="btn btn-outline-danger btn-sm w-100">更新登录凭证</button>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
 
-        <div class="col-md-6 col-xl-7">
-            <div class="card">
-                <div class="card-header d-flex align-items-center">
-                    <div class="rounded-circle bg-light-primary p-2 me-3">
-                        <i class="bi bi-send text-primary"></i>
+                <form action="/account/password" method="POST">
+                    <div class="mb-4">
+                        <label class="form-label small text-muted fw-bold text-uppercase">当前用户</label>
+                        <input type="text" class="form-control" value="{{ .Username }}" disabled>
                     </div>
-                    <span>Telegram 推送中枢</span>
-                </div>
-                <div class="card-body">
-                    <form action="/settings/update" method="POST">
-                        <input type="hidden" name="token" value="{{ .Setting.CFToken }}">
-                        <div class="row g-3">
-                            <div class="col-sm-7">
-                                <label class="form-label small text-muted">Bot Token</label>
-                                <input type="text" name="tg_token" class="form-control form-control-sm" placeholder="机器人的 API 令牌" value="{{ .Setting.TelegramBotToken }}">
-                            </div>
-                            <div class="col-sm-5">
-                                <label class="form-label small text-muted">Chat ID</label>
-                                <input type="text" name="tg_chat_id" class="form-control form-control-sm" placeholder="您的用户 ID" value="{{ .Setting.TelegramChatID }}">
-                            </div>
-                        </div>
-                        <div class="d-flex justify-content-end mt-3 gap-2">
-                            <button type="submit" formaction="/settings/test-tg" class="btn btn-light-primary btn-sm">测试</button>
-                            <button type="submit" class="btn btn-primary btn-sm px-4">更新通知配置</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
+                    
+                    <div class="mb-4">
+                        <label class="form-label small text-muted fw-bold text-uppercase">当前密码</label>
+                        <input type="password" name="old_password" class="form-control" placeholder="请输入当前使用的密码" required>
+                    </div>
+                    
+                    <div class="mb-5">
+                        <label class="form-label small text-muted fw-bold text-uppercase">设置新密码</label>
+                        <input type="password" name="new_password" class="form-control" placeholder="新密码 (至少 5 位)" required>
+                        <div class="form-text mt-2"><i class="bi bi-info-circle me-1"></i> 修改成功后需要重新登录</div>
+                    </div>
 
-        <div class="col-md-6 col-xl-5">
-            <div class="card">
-                <div class="card-header d-flex align-items-center">
-                    <div class="rounded-circle bg-light-success p-2 me-3">
-                        <i class="bi bi-database text-success"></i>
+                    <div class="d-grid">
+                        <button class="btn btn-primary py-3">
+                            <i class="bi bi-check-lg me-2"></i>确认修改密码
+                        </button>
                     </div>
-                    <span>数据快照与恢复</span>
-                </div>
-                <div class="card-body">
-                    <div class="d-flex gap-2">
-                        <a href="/settings/backup" class="btn btn-light-primary btn-sm flex-grow-1 py-2">
-                            <i class="bi bi-download me-1"></i>导出 JSON
-                        </a>
-                        <form action="/settings/restore" method="POST" enctype="multipart/form-data" id="restoreForm" class="flex-grow-1">
-                            <input type="file" name="backup_file" id="bfile" class="d-none" onchange="document.getElementById('restoreForm').submit()" accept=".json">
-                            <label for="bfile" class="btn btn-light-success btn-sm w-100 py-2 cursor-pointer mb-0">
-                                <i class="bi bi-upload me-1"></i>导入快照
-                            </label>
-                        </form>
-                    </div>
-                    <div class="mt-2 text-center">
-                        <span class="text-muted small" style="font-size: 0.7rem;">建议在重大配置变更前进行快照备份</span>
-                    </div>
-                </div>
+                </form>
             </div>
         </div>
     </div>
@@ -1412,48 +1511,44 @@ const settingsHTML = `
 
 const logsHTML = `
 {{ template "common_header" . }}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h3 class="fw-bold m-0 text-dark">运行日志</h3>
-        <p class="text-muted small m-0">最近 200 条系统操作记录</p>
+<div class="card h-100">
+    <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+        <h6 class="mb-0 fw-bold">系统日志 (最新 200 条)</h6>
+        <div>
+            <a href="/logs/clear" class="btn btn-outline-danger btn-sm me-2" onclick="return confirmDel('/logs/clear', '所有日志')">
+                <i class="bi bi-trash"></i> 清空
+            </a>
+            <a href="/logs" class="btn btn-light btn-sm border">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+            </a>
+        </div>
     </div>
-    <div>
-        <a href="/logs/clear" class="btn btn-outline-danger btn-sm me-2" onclick="return confirm('确定清空？')">
-            <i class="bi bi-trash"></i> 清空
-        </a>
-        <a href="/logs" class="btn btn-white btn-sm border shadow-sm">
-            <i class="bi bi-arrow-clockwise"></i> 刷新
-        </a>
-    </div>
-</div>
-
-<div class="card">
     <div class="table-responsive">
-        <table class="table table-striped table-hover align-middle mb-0">
+        <table class="table table-striped align-middle mb-0" style="font-size: 0.9rem;">
             <thead>
                 <tr>
-                    <th class="ps-4" style="width: 180px;">时间</th>
-                    <th style="width: 100px;">级别</th>
-                    <th>信息内容</th>
+                    <th class="ps-4" style="width: 160px;">Time</th>
+                    <th style="width: 100px;">Level</th>
+                    <th>Message</th>
                 </tr>
             </thead>
             <tbody>
                 {{ range .Logs }}
                 <tr>
-                    <td class="ps-4 text-muted small font-monospace">{{ .CreatedAt.Format "01-02 15:04:05" }}</td>
+                    <td class="ps-4 text-muted font-monospace">{{ .CreatedAt.Format "01-02 15:04:05" }}</td>
                     <td>
                         {{ if eq .Level "ERROR" }}
-                        <span class="badge bg-light-danger">ERROR</span>
+                        <span class="badge bg-danger bg-opacity-10 text-danger">ERROR</span>
                         {{ else if eq .Level "SUCCESS" }}
-                        <span class="badge bg-light-success">SUCCESS</span>
+                        <span class="badge bg-success bg-opacity-10 text-success">SUCCESS</span>
                         {{ else }}
-                        <span class="badge bg-light-info">INFO</span>
+                        <span class="badge bg-info bg-opacity-10 text-info">INFO</span>
                         {{ end }}
                     </td>
-                    <td class="text-dark small text-break">{{ .Message }}</td>
+                    <td class="text-break">{{ .Message }}</td>
                 </tr>
                 {{ else }}
-                <tr><td colspan="3" class="text-center py-5 text-muted small">暂无日志</td></tr>
+                <tr><td colspan="3" class="text-center py-5 text-muted">暂无日志数据</td></tr>
                 {{ end }}
             </tbody>
         </table>
@@ -1465,66 +1560,90 @@ const logsHTML = `
 const loginHTML = `<!DOCTYPE html>
 <html lang="zh">
 <head>
-    <title>登录 - DDNS Master</title>
+    <title>登录 - DDNS Pro</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <style>
         body { 
-            background: #f3f4f6; 
-            background-image: radial-gradient(#e5e7eb 1px, transparent 1px);
-            background-size: 20px 20px;
-            font-family: 'Inter', sans-serif; 
-            display: flex; align-items: center; justify-content: center; min-height: 100vh; 
+            background: #f8fafc;
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #334155;
         }
-        .login-card { 
-            width: 100%; max-width: 400px; border: none; 
-            border-radius: 16px; 
-            box-shadow: 0 10px 40px -10px rgba(0,0,0,0.1); 
-            background: white; padding: 40px; 
+        .login-card {
+            width: 100%; max-width: 400px;
+            background: #fff;
+            border-radius: 24px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+            padding: 48px;
+            border: 1px solid rgba(255,255,255,0.5);
         }
-        .brand-icon { 
-            width: 50px; height: 50px; 
-            background: linear-gradient(135deg, #6366f1, #4f46e5); 
-            color: white; border-radius: 12px; 
-            display: flex; align-items: center; justify-content: center; 
-            margin: 0 auto 20px; font-size: 24px; font-weight: bold; 
+        .form-control {
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            background-color: #f8fafc;
+            font-size: 0.95rem;
+            transition: all 0.3s;
         }
-        .form-control { 
-            padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb; background: #f9fafb;
+        .form-control:focus {
+            background-color: #fff;
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
         }
-        .form-control:focus { 
-            background: #fff; border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); 
-        }
-        .btn-primary { 
-            width: 100%; padding: 12px; border-radius: 8px; 
-            background: #4f46e5; border: none; font-weight: 600; 
+        .btn-primary {
+            width: 100%; padding: 14px;
+            background-color: #4f46e5;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
             transition: all 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
         }
-        .btn-primary:hover { background: #4338ca; transform: translateY(-1px); }
+        .btn-primary:hover { background-color: #4338ca; transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3); }
+        .logo-box {
+            width: 64px; height: 64px;
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            border-radius: 16px;
+            display: flex; align-items: center; justify-content: center;
+            color: white;
+            margin: 0 auto 24px auto;
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
+        }
     </style>
 </head>
 <body>
     <div class="login-card">
-        <div class="text-center mb-4">
-            <div class="brand-icon">D</div>
-            <h4 class="fw-bold text-dark mb-1">Welcome Back</h4>
-            <p class="text-muted small">DDNS Master 管理面板</p>
+        <div class="text-center mb-5">
+            <div class="logo-box">
+                <i class="bi bi-cloud-lightning-fill fs-2"></i>
+            </div>
+            <h4 class="fw-bold text-dark mb-2">Welcome Back</h4>
+            <p class="text-muted small">请输入您的管理员凭证</p>
         </div>
         {{ if .Error }}
-        <div class="alert alert-danger py-2 small border-0 bg-danger bg-opacity-10 text-danger mb-4 text-center rounded-3">{{ .Error }}</div>
+        <div class="alert alert-danger border-0 bg-danger bg-opacity-10 text-danger text-center small rounded-3 py-3 mb-4">
+            <i class="bi bi-exclamation-circle me-1"></i> {{ .Error }}
+        </div>
         {{ end }}
         <form action="/do-login" method="POST">
-            <div class="mb-3">
-                <label class="form-label small fw-bold text-secondary">用户名</label>
-                <input type="text" name="username" class="form-control" required>
+            <div class="mb-4">
+                <input type="text" name="username" class="form-control" placeholder="用户名" required>
             </div>
             <div class="mb-4">
-                <label class="form-label small fw-bold text-secondary">密码</label>
-                <input type="password" name="password" class="form-control" required>
+                <input type="password" name="password" class="form-control" placeholder="密码" required>
             </div>
-            <button class="btn btn-primary">立即登录</button>
+            <button class="btn btn-primary">登 录</button>
         </form>
+        <div class="text-center mt-4">
+            <small class="text-muted opacity-50">Powered by GoRelay DDNS</small>
+        </div>
     </div>
 </body>
 </html>`
@@ -1532,65 +1651,78 @@ const loginHTML = `<!DOCTYPE html>
 const installHTML = `<!DOCTYPE html>
 <html lang="zh">
 <head>
-    <title>初始化 - DDNS Master</title>
+    <title>初始化 - DDNS Pro</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <style>
         body { 
-            background: #ecfdf5; 
+            background: #ecfdf5;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .bg-pattern {
+            position: absolute; width: 100%; height: 100%; top: 0; left: 0;
             background-image: radial-gradient(#d1fae5 1px, transparent 1px);
-            background-size: 20px 20px;
-            font-family: 'Inter', sans-serif; 
-            display: flex; align-items: center; justify-content: center; min-height: 100vh; 
+            background-size: 24px 24px;
+            z-index: -1;
         }
-        .login-card { 
-            width: 100%; max-width: 400px; border: none; 
-            border-radius: 16px; 
-            box-shadow: 0 10px 40px -10px rgba(16, 185, 129, 0.1); 
-            background: white; padding: 40px; 
+        .login-card {
+            width: 100%; max-width: 400px;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.1);
+            padding: 40px;
         }
-        .brand-icon { 
-            width: 50px; height: 50px; 
-            background: linear-gradient(135deg, #10b981, #059669); 
-            color: white; border-radius: 12px; 
-            display: flex; align-items: center; justify-content: center; 
-            margin: 0 auto 20px; font-size: 24px; 
+        .form-control {
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            background-color: #f9fafb;
         }
-        .form-control { 
-            padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb; background: #f9fafb;
+        .form-control:focus {
+            background-color: #fff;
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
         }
-        .form-control:focus { 
-            background: #fff; border-color: #10b981; box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1); 
-        }
-        .btn-success { 
-            width: 100%; padding: 12px; border-radius: 8px; 
-            background: #10b981; border: none; font-weight: 600; 
+        .btn-success {
+            width: 100%; padding: 12px;
+            background-color: #10b981;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
             transition: all 0.2s;
         }
-        .btn-success:hover { background: #059669; transform: translateY(-1px); }
+        .btn-success:hover { background-color: #059669; transform: translateY(-1px); }
     </style>
 </head>
 <body>
+    <div class="bg-pattern"></div>
     <div class="login-card">
         <div class="text-center mb-4">
-            <div class="brand-icon">⚡</div>
-            <h4 class="fw-bold text-dark mb-1">系统初始化</h4>
-            <p class="text-muted small">设置管理员账号</p>
+            <div class="d-inline-flex align-items-center justify-content-center bg-success text-white rounded-3 mb-3" style="width: 48px; height: 48px;">
+                <i class="bi bi-hdd-rack-fill fs-4"></i>
+            </div>
+            <h4 class="fw-bold text-dark">系统初始化</h4>
+            <p class="text-muted small">设置您的管理员账号</p>
         </div>
         {{ if .Error }}
-        <div class="alert alert-danger py-2 small border-0 bg-danger bg-opacity-10 text-danger mb-4 text-center rounded-3">{{ .Error }}</div>
+        <div class="alert alert-danger border-0 bg-danger bg-opacity-10 text-danger text-center small rounded-3 py-2 mb-4">{{ .Error }}</div>
         {{ end }}
         <form action="/do-install" method="POST">
             <div class="mb-3">
-                <label class="form-label small fw-bold text-secondary">用户名</label>
+                <label class="form-label small fw-bold text-muted">管理员用户名</label>
                 <input type="text" name="username" class="form-control" placeholder="Admin" required>
             </div>
             <div class="mb-4">
-                <label class="form-label small fw-bold text-secondary">密码</label>
+                <label class="form-label small fw-bold text-muted">设置密码</label>
                 <input type="password" name="password" class="form-control" placeholder="Password" required>
             </div>
-            <button class="btn btn-success">完成安装</button>
+            <button class="btn btn-success shadow-sm">完成安装</button>
         </form>
     </div>
 </body>
