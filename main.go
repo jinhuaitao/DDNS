@@ -376,7 +376,7 @@ func main() {
 	t.New("install").Parse(installHTML)
 	t.New("dashboard").Parse(dashboardHTML)
 	t.New("settings").Parse(settingsHTML)
-	t.New("account").Parse(accountHTML) // 解析新的账号模板
+	t.New("account").Parse(accountHTML)
 	t.New("logs").Parse(logsHTML)
 	r.SetHTMLTemplate(t)
 
@@ -402,7 +402,6 @@ func main() {
 		auth.GET("/settings/backup", handleBackup)
 		auth.POST("/settings/restore", handleRestore)
 
-		// 账号安全相关
 		auth.GET("/account", handleAccount)
 		auth.POST("/account/password", handleUpdatePassword)
 
@@ -415,7 +414,7 @@ func main() {
 	}
 
 	fmt.Println("---------------------------------------")
-	fmt.Println("   Go DDNS Panel (UI Enhanced) 已启动")
+	fmt.Println("   Go DDNS Panel (Visual Enhanced) 已启动")
 	fmt.Println("   访问地址: http://localhost:8080")
 	fmt.Println("---------------------------------------")
 	r.Run(":8080")
@@ -538,7 +537,6 @@ func handleDashboard(c *gin.Context) {
 	})
 }
 
-// 新增处理函数：渲染账号管理页面
 func handleAccount(c *gin.Context) {
 	username := sessions.Default(c).Get("user").(string)
 	sess := sessions.Default(c)
@@ -767,13 +765,15 @@ const commonHeaderHTML = `
 
     <style>
         :root {
+            /* 现代配色 */
             --primary: #4f46e5;
-            --primary-light: #e0e7ff;
+            --primary-light: #eef2ff;
             --primary-hover: #4338ca;
             --bg-body: #f8fafc;
             --sidebar-width: 280px;
             --sidebar-bg: #1e293b;
             --card-radius: 16px;
+            --input-bg: #f3f4f6;
             --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -785,7 +785,7 @@ const commonHeaderHTML = `
             -webkit-font-smoothing: antialiased;
         }
 
-        /* === 侧边栏 === */
+        /* === 侧边栏优化 === */
         .sidebar {
             width: var(--sidebar-width);
             background: var(--sidebar-bg);
@@ -854,9 +854,9 @@ const commonHeaderHTML = `
 
         /* === 顶部导航 === */
         .top-navbar {
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             height: 80px;
             padding: 0 40px;
             display: flex;
@@ -865,10 +865,10 @@ const commonHeaderHTML = `
             position: sticky;
             top: 0;
             z-index: 1030;
-            border-bottom: 1px solid rgba(0,0,0,0.03);
+            border-bottom: 1px solid rgba(0,0,0,0.04);
         }
 
-        /* === 组件通用 === */
+        /* === UI 组件细节优化 === */
         .card {
             border: none;
             border-radius: var(--card-radius);
@@ -880,20 +880,49 @@ const commonHeaderHTML = `
         
         .card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.01);
         }
 
-        .btn { border-radius: 10px; padding: 0.6rem 1.2rem; font-weight: 600; letter-spacing: 0.3px; transition: var(--transition); }
+        /* 按钮美化 */
+        .btn { border-radius: 10px; padding: 0.65rem 1.3rem; font-weight: 600; letter-spacing: 0.3px; transition: var(--transition); }
         .btn-primary { background-color: var(--primary); border-color: var(--primary); box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2); }
-        .btn-primary:hover { background-color: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 6px 10px -1px rgba(79, 70, 229, 0.3); }
+        .btn-primary:hover { background-color: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 8px 12px -1px rgba(79, 70, 229, 0.3); }
         .btn-light-primary { background: var(--primary-light); color: var(--primary); border: none; }
-        .btn-light-primary:hover { background: #dbeafe; color: var(--primary-hover); }
+        .btn-light-primary:hover { background: #e0e7ff; color: var(--primary-hover); }
 
+        /* 表格美化 */
         .table thead th { background: #f8fafc; text-transform: uppercase; font-size: 0.7rem; color: #64748b; font-weight: 700; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; }
         .table tbody td { padding: 20px 24px; vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #475569; font-weight: 500; }
         .badge { font-weight: 600; padding: 0.5em 1em; border-radius: 6px; letter-spacing: 0.3px; }
-        .form-control, .form-select { border-color: #e2e8f0; border-radius: 10px; padding: 0.75rem 1rem; background-color: #f8fafc; transition: var(--transition); }
-        .form-control:focus, .form-select:focus { background-color: #fff; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1); }
+
+        /* 输入框美化 */
+        .form-control, .form-select {
+            border: 1px solid transparent;
+            border-radius: 10px;
+            padding: 0.8rem 1rem;
+            background-color: var(--input-bg);
+            transition: var(--transition);
+            font-size: 0.95rem;
+            color: #334155;
+        }
+        .form-control:focus, .form-select:focus {
+            background-color: #fff;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+        }
+        .form-label {
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+
+        /* 统一图标背景 */
+        .icon-box {
+            width: 48px; height: 48px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem;
+        }
 
         @media (max-width: 991.98px) {
             .sidebar { transform: translateX(-100%); }
@@ -1028,7 +1057,7 @@ const dashboardHTML = `
                     <p class="text-muted small text-uppercase fw-bold mb-1 tracking-wider">托管域名</p>
                     <h2 class="mb-0 fw-bold text-dark display-6">{{ .Stats.TotalDomains }}</h2>
                 </div>
-                <div class="bg-primary bg-opacity-10 p-3 rounded-4 text-primary d-flex align-items-center justify-content-center" style="width: 64px; height: 64px;">
+                <div class="icon-box bg-primary bg-opacity-10 text-primary" style="width: 64px; height: 64px;">
                     <i class="bi bi-globe2 fs-2"></i>
                 </div>
             </div>
@@ -1041,7 +1070,7 @@ const dashboardHTML = `
                     <p class="text-muted small text-uppercase fw-bold mb-1 tracking-wider">同步正常</p>
                     <h2 class="mb-0 fw-bold text-success display-6">{{ .Stats.SuccessCount }}</h2>
                 </div>
-                <div class="bg-success bg-opacity-10 p-3 rounded-4 text-success d-flex align-items-center justify-content-center" style="width: 64px; height: 64px;">
+                <div class="icon-box bg-success bg-opacity-10 text-success" style="width: 64px; height: 64px;">
                     <i class="bi bi-check-circle-fill fs-2"></i>
                 </div>
             </div>
@@ -1054,7 +1083,7 @@ const dashboardHTML = `
                     <p class="text-muted small text-uppercase fw-bold mb-1 tracking-wider">上次运行</p>
                     <h4 class="mb-0 fw-bold text-dark fs-4">{{ .Stats.LastRunTime }}</h4>
                 </div>
-                <div class="bg-info bg-opacity-10 p-3 rounded-4 text-info d-flex align-items-center justify-content-center" style="width: 64px; height: 64px;">
+                <div class="icon-box bg-info bg-opacity-10 text-info" style="width: 64px; height: 64px;">
                     <i class="bi bi-activity fs-2"></i>
                 </div>
             </div>
@@ -1218,7 +1247,7 @@ const dashboardHTML = `
                 <div class="modal-body p-4">
                     <div class="mb-4">
                         <label class="form-label small text-muted text-uppercase fw-bold">DNS 记录类型</label>
-                        <select name="record_type" class="form-select bg-light border-0 py-2">
+                        <select name="record_type" class="form-select">
                             <option value="A">IPv4 (A 记录)</option>
                             <option value="AAAA">IPv6 (AAAA 记录)</option>
                         </select>
@@ -1226,7 +1255,7 @@ const dashboardHTML = `
                     
                     <div class="mb-4">
                         <label class="form-label small text-muted text-uppercase fw-bold">完整域名</label>
-                        <input type="text" name="record_name" class="form-control bg-light border-0 py-2" required placeholder="例如: vpn.example.com">
+                        <input type="text" name="record_name" class="form-control" required placeholder="例如: vpn.example.com">
                     </div>
 
                     <div class="mb-4" x-data="{ source: 'api' }">
@@ -1280,20 +1309,20 @@ const dashboardHTML = `
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label small text-muted fw-bold">类型</label>
-                            <select name="record_type" id="edit_type" class="form-select bg-light border-0">
+                            <select name="record_type" id="edit_type" class="form-select">
                                 <option value="A">A (IPv4)</option>
                                 <option value="AAAA">AAAA (IPv6)</option>
                             </select>
                         </div>
                         <div class="col-md-8">
                             <label class="form-label small text-muted fw-bold">域名</label>
-                            <input type="text" name="record_name" id="edit_name" class="form-control bg-light border-0" required>
+                            <input type="text" name="record_name" id="edit_name" class="form-control" required>
                         </div>
                     </div>
 
                     <div class="mt-4">
                          <label class="form-label small text-muted fw-bold">IP 来源</label>
-                         <select name="ip_source" id="edit_ip_source" class="form-select bg-light border-0 ip-source-select" data-target="edit_iface_div">
+                         <select name="ip_source" id="edit_ip_source" class="form-select ip-source-select" data-target="edit_iface_div">
                             <option value="api">Web API</option>
                             <option value="interface">本机网卡</option>
                          </select>
@@ -1375,86 +1404,99 @@ const settingsHTML = `
 {{ template "common_header" . }}
 <div class="row g-4">
     <div class="col-lg-6">
-        <div class="card h-100">
-            <div class="card-body p-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body p-4 p-md-5">
                 <div class="d-flex align-items-center mb-4">
-                    <div class="bg-warning bg-opacity-10 p-3 rounded-circle text-warning me-3">
-                        <i class="bi bi-cloud-lightning fs-4"></i>
+                    <div class="icon-box bg-warning bg-opacity-10 text-warning me-3">
+                        <i class="bi bi-cloud-lightning-fill"></i>
                     </div>
                     <div>
-                        <h6 class="fw-bold mb-0">Cloudflare API</h6>
-                        <small class="text-muted">核心连接配置</small>
+                        <h5 class="fw-bold mb-1">Cloudflare 连接</h5>
+                        <p class="text-muted small mb-0">配置 API 以管理 DNS 解析</p>
                     </div>
                 </div>
                 <form action="/settings/update" method="POST">
-                    <div class="mb-3">
-                        <label class="form-label small text-muted fw-bold">API Token</label>
-                        <input type="password" name="token" class="form-control" value="{{ .Setting.CFToken }}" placeholder="在此粘贴 API 令牌">
-                        <div class="form-text">令牌需要 <span class="badge bg-light text-dark border">Zone.DNS:Edit</span> 权限</div>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-uppercase">API Token</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-0 text-muted"><i class="bi bi-key-fill"></i></span>
+                            <input type="password" name="token" class="form-control bg-light border-0" value="{{ .Setting.CFToken }}" placeholder="在此粘贴您的 API 令牌">
+                        </div>
+                        <div class="form-text mt-2 ms-1 text-muted">需要 <span class="badge bg-secondary bg-opacity-10 text-secondary border">Zone.DNS:Edit</span> 权限</div>
                     </div>
                     <input type="hidden" name="tg_token" value="{{ .Setting.TelegramBotToken }}">
                     <input type="hidden" name="tg_chat_id" value="{{ .Setting.TelegramChatID }}">
-                    <button class="btn btn-primary w-100 mt-2">保存 Cloudflare 配置</button>
+                    <button class="btn btn-primary w-100 py-2 shadow-sm"><i class="bi bi-save me-2"></i>保存连接配置</button>
                 </form>
             </div>
         </div>
     </div>
 
     <div class="col-lg-6">
-        <div class="card h-100">
-            <div class="card-body p-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body p-4 p-md-5">
                 <div class="d-flex align-items-center mb-4">
-                    <div class="bg-info bg-opacity-10 p-3 rounded-circle text-info me-3">
-                        <i class="bi bi-telegram fs-4"></i>
+                    <div class="icon-box bg-info bg-opacity-10 text-info me-3">
+                        <i class="bi bi-telegram"></i>
                     </div>
                     <div>
-                        <h6 class="fw-bold mb-0">Telegram 通知</h6>
-                        <small class="text-muted">IP 变动实时推送</small>
+                        <h5 class="fw-bold mb-1">Telegram 通知</h5>
+                        <p class="text-muted small mb-0">实时推送 IP 变更消息</p>
                     </div>
                 </div>
                 <form action="/settings/update" method="POST">
                     <input type="hidden" name="token" value="{{ .Setting.CFToken }}">
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-7">
-                            <label class="form-label small text-muted fw-bold">Bot Token</label>
-                            <input type="text" name="tg_token" class="form-control" value="{{ .Setting.TelegramBotToken }}">
-                        </div>
-                        <div class="col-md-5">
-                            <label class="form-label small text-muted fw-bold">Chat ID</label>
-                            <input type="text" name="tg_chat_id" class="form-control" value="{{ .Setting.TelegramChatID }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-uppercase">Bot Token</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-0 text-muted"><i class="bi bi-robot"></i></span>
+                            <input type="text" name="tg_token" class="form-control bg-light border-0" value="{{ .Setting.TelegramBotToken }}" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
                         </div>
                     </div>
-                    <div class="d-flex gap-2 mt-2">
-                        <button type="submit" formaction="/settings/test-tg" class="btn btn-light-primary flex-grow-1">发送测试消息</button>
-                        <button type="submit" class="btn btn-primary flex-grow-1">保存配置</button>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-uppercase">Chat ID</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-0 text-muted"><i class="bi bi-chat-dots-fill"></i></span>
+                            <input type="text" name="tg_chat_id" class="form-control bg-light border-0" value="{{ .Setting.TelegramChatID }}" placeholder="例如: 123456789">
+                        </div>
+                    </div>
+                    <div class="d-flex gap-3">
+                        <button type="submit" formaction="/settings/test-tg" class="btn btn-light text-primary bg-primary bg-opacity-10 flex-grow-1 border-0"><i class="bi bi-send me-1"></i> 测试</button>
+                        <button type="submit" class="btn btn-primary flex-grow-1 shadow-sm"><i class="bi bi-save me-1"></i> 保存</button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 
-    <div class="col-lg-6">
-        <div class="card h-100">
-            <div class="card-body p-4">
-                <div class="d-flex align-items-center mb-4">
-                    <div class="bg-success bg-opacity-10 p-3 rounded-circle text-success me-3">
-                        <i class="bi bi-database fs-4"></i>
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4 p-md-5">
+                <div class="row align-items-center">
+                    <div class="col-lg-5 mb-4 mb-lg-0">
+                        <div class="d-flex align-items-center">
+                            <div class="icon-box bg-success bg-opacity-10 text-success me-3">
+                                <i class="bi bi-database-fill-gear"></i>
+                            </div>
+                            <div>
+                                <h5 class="fw-bold mb-1">数据备份与迁移</h5>
+                                <p class="text-muted small mb-0">导出系统快照或从文件恢复配置</p>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <h6 class="fw-bold mb-0">备份与恢复</h6>
-                        <small class="text-muted">数据快照管理</small>
+                    <div class="col-lg-7">
+                        <div class="d-flex gap-3 flex-column flex-sm-row justify-content-end">
+                            <a href="/settings/backup" class="btn btn-light border py-2 px-4 d-flex align-items-center justify-content-center">
+                                <i class="bi bi-download me-2"></i>导出配置 (JSON)
+                            </a>
+                            <form action="/settings/restore" method="POST" enctype="multipart/form-data" id="restoreForm" class="mb-0">
+                                <input type="file" name="backup_file" id="bfile" class="d-none" onchange="document.getElementById('restoreForm').submit()" accept=".json">
+                                <label for="bfile" class="btn btn-success text-white py-2 px-4 w-100 d-flex align-items-center justify-content-center shadow-sm cursor-pointer" style="cursor: pointer;">
+                                    <i class="bi bi-upload me-2"></i>上传并恢复
+                                </label>
+                            </form>
+                        </div>
                     </div>
-                </div>
-                <div class="d-grid gap-3">
-                    <a href="/settings/backup" class="btn btn-light border py-2">
-                        <i class="bi bi-download me-2"></i>导出配置 (JSON)
-                    </a>
-                    <form action="/settings/restore" method="POST" enctype="multipart/form-data" id="restoreForm">
-                        <input type="file" name="backup_file" id="bfile" class="d-none" onchange="document.getElementById('restoreForm').submit()" accept=".json">
-                        <label for="bfile" class="btn btn-light-success border-success border-opacity-25 w-100 mb-0 py-2">
-                            <i class="bi bi-upload me-2"></i>从文件恢复
-                        </label>
-                    </form>
                 </div>
             </div>
         </div>
@@ -1470,8 +1512,8 @@ const accountHTML = `
         <div class="card h-100">
             <div class="card-body p-4 p-md-5">
                 <div class="d-flex align-items-center mb-5">
-                    <div class="bg-danger bg-opacity-10 p-3 rounded-circle text-danger me-4">
-                        <i class="bi bi-shield-lock-fill fs-3"></i>
+                    <div class="icon-box bg-danger bg-opacity-10 text-danger me-4" style="width: 64px; height: 64px; font-size: 2rem;">
+                        <i class="bi bi-shield-lock-fill"></i>
                     </div>
                     <div>
                         <h4 class="fw-bold mb-1">账号安全中心</h4>
@@ -1481,23 +1523,23 @@ const accountHTML = `
 
                 <form action="/account/password" method="POST">
                     <div class="mb-4">
-                        <label class="form-label small text-muted fw-bold text-uppercase">当前用户</label>
-                        <input type="text" class="form-control" value="{{ .Username }}" disabled>
+                        <label class="form-label fw-bold small text-uppercase">当前用户</label>
+                        <input type="text" class="form-control bg-light" value="{{ .Username }}" disabled>
                     </div>
                     
                     <div class="mb-4">
-                        <label class="form-label small text-muted fw-bold text-uppercase">当前密码</label>
+                        <label class="form-label fw-bold small text-uppercase">当前密码</label>
                         <input type="password" name="old_password" class="form-control" placeholder="请输入当前使用的密码" required>
                     </div>
                     
                     <div class="mb-5">
-                        <label class="form-label small text-muted fw-bold text-uppercase">设置新密码</label>
+                        <label class="form-label fw-bold small text-uppercase">设置新密码</label>
                         <input type="password" name="new_password" class="form-control" placeholder="新密码 (至少 5 位)" required>
-                        <div class="form-text mt-2"><i class="bi bi-info-circle me-1"></i> 修改成功后需要重新登录</div>
+                        <div class="form-text mt-2 text-muted"><i class="bi bi-info-circle me-1"></i> 修改成功后需要重新登录</div>
                     </div>
 
                     <div class="d-grid">
-                        <button class="btn btn-primary py-3">
+                        <button class="btn btn-primary py-3 shadow-sm">
                             <i class="bi bi-check-lg me-2"></i>确认修改密码
                         </button>
                     </div>
@@ -1512,8 +1554,10 @@ const accountHTML = `
 const logsHTML = `
 {{ template "common_header" . }}
 <div class="card h-100">
-    <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
-        <h6 class="mb-0 fw-bold">系统日志 (最新 200 条)</h6>
+    <div class="card-header bg-white py-3 px-4 border-0 d-flex justify-content-between align-items-center">
+        <h6 class="mb-0 fw-bold d-flex align-items-center">
+             <i class="bi bi-terminal-fill me-2 text-muted"></i> 系统日志 <span class="badge bg-light text-secondary ms-2 border">最新 200 条</span>
+        </h6>
         <div>
             <a href="/logs/clear" class="btn btn-outline-danger btn-sm me-2" onclick="return confirmDel('/logs/clear', '所有日志')">
                 <i class="bi bi-trash"></i> 清空
@@ -1527,7 +1571,7 @@ const logsHTML = `
         <table class="table table-striped align-middle mb-0" style="font-size: 0.9rem;">
             <thead>
                 <tr>
-                    <th class="ps-4" style="width: 160px;">Time</th>
+                    <th class="ps-4" style="width: 180px;">Time</th>
                     <th style="width: 100px;">Level</th>
                     <th>Message</th>
                 </tr>
@@ -1535,17 +1579,17 @@ const logsHTML = `
             <tbody>
                 {{ range .Logs }}
                 <tr>
-                    <td class="ps-4 text-muted font-monospace">{{ .CreatedAt.Format "01-02 15:04:05" }}</td>
+                    <td class="ps-4 text-muted font-monospace small">{{ .CreatedAt.Format "01-02 15:04:05" }}</td>
                     <td>
                         {{ if eq .Level "ERROR" }}
-                        <span class="badge bg-danger bg-opacity-10 text-danger">ERROR</span>
+                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-10">ERROR</span>
                         {{ else if eq .Level "SUCCESS" }}
-                        <span class="badge bg-success bg-opacity-10 text-success">SUCCESS</span>
+                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-10">SUCCESS</span>
                         {{ else }}
-                        <span class="badge bg-info bg-opacity-10 text-info">INFO</span>
+                        <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-10">INFO</span>
                         {{ end }}
                     </td>
-                    <td class="text-break">{{ .Message }}</td>
+                    <td class="text-break text-secondary">{{ .Message }}</td>
                 </tr>
                 {{ else }}
                 <tr><td colspan="3" class="text-center py-5 text-muted">暂无日志数据</td></tr>
