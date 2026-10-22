@@ -53,7 +53,8 @@ ${BOLD}DDNS Master 管理脚本${NC}
 选项:
   --version TAG       指定 Release 标签，例如 v1.2.3；默认 latest
   --from-file FILE    使用本地二进制文件安装或更新
-  --addr ADDR         监听地址，默认 :8080
+  --port PORT         手动指定监听端口，默认沿用现有配置或 8080
+  --addr ADDR         完整监听地址，例如 127.0.0.1:8080 或 [::]:8080
   --data-dir DIR      数据目录，默认 /etc/ddns
   --cookie-secure M   auto | true | false，默认 auto
   --yes, -y           非交互确认
@@ -62,6 +63,7 @@ ${BOLD}DDNS Master 管理脚本${NC}
 
 示例:
   sudo sh install.sh install
+  sudo sh install.sh install --port 9090
   sudo sh install.sh update --version v1.2.3
   sudo sh install.sh uninstall --purge --yes
 
@@ -103,6 +105,47 @@ env_value() {
 
 require_root() {
     [ "$(id -u)" -eq 0 ] || fail "请使用 root 权限运行，例如：sudo sh install.sh ${COMMAND}"
+}
+
+is_valid_port() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
+addr_port() {
+    case "$1" in
+        *:*) printf '%s' "${1##*:}" ;;
+        *) printf '' ;;
+    esac
+}
+
+addr_with_port() {
+    port="$1"
+    case "$ADDR" in
+        \[*\]:*) printf '%s:%s' "${ADDR%]:*}]" "$port" ;;
+        *:*) printf '%s:%s' "${ADDR%:*}" "$port" ;;
+        *) printf ':%s' "$port" ;;
+    esac
+}
+
+prompt_install_port() {
+    [ -t 0 ] || return 0
+    current=$(addr_port "$ADDR")
+    [ -n "$current" ] || current="8080"
+    while :; do
+        printf '监听端口 [%s]（直接回车保持不变）: ' "$current"
+        read -r input || return 0
+        input=$(printf '%s' "$input" | tr -d '[:space:]')
+        [ -n "$input" ] || return 0
+        if is_valid_port "$input"; then
+            ADDR=$(addr_with_port "$input")
+            info "监听地址: $ADDR"
+            return 0
+        fi
+        warn "端口需为 1-65535 的数字，请重新输入"
+    done
 }
 
 validate_inputs() {
@@ -666,7 +709,7 @@ interactive_menu() {
         printf '%s' "请选择: "
         read -r choice || exit 0
         case "$choice" in
-            1) do_install; return ;;
+            1) prompt_install_port; do_install; return ;;
             2) do_update; return ;;
             3) do_status; return ;;
             4) do_restart; return ;;
@@ -698,6 +741,7 @@ FROM_FILE=""
 PURGE=0
 ASSUME_YES=0
 NO_START=0
+PORT_ARG=""
 ADDR_ARG=""
 DATA_DIR_ARG=""
 COOKIE_ARG=""
@@ -711,6 +755,11 @@ while [ $# -gt 0 ]; do
         --from-file)
             [ $# -ge 2 ] || fail "--from-file 缺少参数"
             FROM_FILE="$2"; shift 2 ;;
+        --port)
+            [ $# -ge 2 ] || fail "--port 缺少参数"
+            PORT_ARG="$2"
+            is_valid_port "$PORT_ARG" || fail "--port 需为 1-65535 的数字，例如 8080 或 9090"
+            shift 2 ;;
         --addr)
             [ $# -ge 2 ] || fail "--addr 缺少参数"
             ADDR_ARG="$2"; shift 2 ;;
@@ -740,7 +789,11 @@ fi
 
 require_root
 load_existing_config
+if [ -n "$PORT_ARG" ] && [ -n "$ADDR_ARG" ]; then
+    fail "--port 与 --addr 不能同时使用"
+fi
 [ -n "$ADDR_ARG" ] && ADDR="$ADDR_ARG"
+[ -n "$PORT_ARG" ] && ADDR=$(addr_with_port "$PORT_ARG")
 [ -n "$DATA_DIR_ARG" ] && DATA_DIR="$DATA_DIR_ARG"
 [ -n "$COOKIE_ARG" ] && COOKIE_SECURE="$COOKIE_ARG"
 
