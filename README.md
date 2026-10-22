@@ -23,8 +23,7 @@
 ### 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinhuaitao/ddns/main/install.sh -o install.sh
-sudo sh install.sh install
+curl -o install.sh https://raw.githubusercontent.com/jinhuaitao/ddns/master/install.sh && chmod +x install.sh && ./install.sh
 ```
 
 安装完成后访问 `http://服务器IP:8080`，创建管理员账号，然后：
