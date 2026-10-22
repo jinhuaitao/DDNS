@@ -16,66 +16,76 @@ SERVICE_USER="ddns"
 SERVICE_GROUP="ddns"
 
 if [ -t 1 ]; then
-    GREEN='\033[0;32m'
-    RED='\033[0;31m'
-    YELLOW='\033[0;33m'
-    BLUE='\033[0;36m'
+    GREEN='\033[1;32m'
+    RED='\033[1;31m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[1;36m'
     BOLD='\033[1m'
+    DIM='\033[2m'
     NC='\033[0m'
 else
-    GREEN=''; RED=''; YELLOW=''; BLUE=''; BOLD=''; NC=''
+    GREEN=''; RED=''; YELLOW=''; BLUE=''; BOLD=''; DIM=''; NC=''
 fi
 
-say()  { printf "${GREEN}%s${NC}\n" "$*"; }
-info() { printf "${BLUE}%s${NC}\n" "$*"; }
-warn() { printf "${YELLOW}%s${NC}\n" "$*"; }
-fail() { printf "${RED}%s${NC}\n" "$*" >&2; exit 1; }
+say()  { printf "${GREEN}✓${NC} %s\n" "$*"; }
+info() { printf "${BLUE}›${NC} %s\n" "$*"; }
+warn() { printf "${YELLOW}!${NC} %s\n" "$*"; }
+fail() { printf "${RED}✗ %s${NC}\n" "$*" >&2; exit 1; }
 die()  { fail "$*"; }
 
+divider() {
+    printf "${DIM}  ──────────────────────────────────────────────${NC}\n"
+}
+
+step() {
+    printf "\n${BLUE}▸${NC} ${BOLD}%s${NC}\n" "$*"
+}
+
 usage() {
+    printf '\n'
+    printf "  ${BLUE}${BOLD}DDNS Master${NC}  ${DIM}Cloudflare 动态 DNS 面板${NC}\n"
+    divider
     cat <<EOF
-${BOLD}DDNS Master 管理脚本${NC}
 
-用法:
-  install.sh <命令> [选项]
+  ${BOLD}用法${NC}
+    install.sh <命令> [选项]
 
-命令:
-  install       安装或覆盖安装（保留已有数据）
-  update        更新到最新版本（保留配置与数据库）
-  uninstall     卸载服务（默认保留数据）
-  status        查看服务、版本与访问地址
-  start         启动服务
-  stop          停止服务
-  restart       重启服务
-  logs          查看日志（终端中会持续跟随）
-  help          显示本帮助
+  ${BOLD}命令${NC}
+    install       安装或覆盖安装（保留已有数据）
+    update        更新到最新版本（保留配置与数据库）
+    uninstall     卸载服务（默认保留数据）
+    status        查看服务、版本与访问地址
+    start         启动服务
+    stop          停止服务
+    restart       重启服务
+    logs          查看日志（终端中会持续跟随）
+    help          显示本帮助
 
-选项:
-  --version TAG       指定 Release 标签，例如 v1.2.3；默认 latest
-  --from-file FILE    使用本地二进制文件安装或更新
-  --port PORT         手动指定监听端口，默认沿用现有配置或 8080
-  --addr ADDR         完整监听地址，例如 127.0.0.1:8080 或 [::]:8080
-  --data-dir DIR      数据目录，默认 /etc/ddns
-  --cookie-secure M   auto | true | false，默认 auto
-  --yes, -y           非交互确认
-  --purge             卸载时同时删除数据与账号（谨慎）
-  --no-start          安装/更新后不启动服务
+  ${BOLD}选项${NC}
+    --version TAG       指定 Release 标签，例如 v1.2.3；默认 latest
+    --from-file FILE    使用本地二进制文件安装或更新
+    --addr ADDR         监听地址，例如 127.0.0.1:8080；安装时会提示设置端口
+    --data-dir DIR      数据目录，默认 /etc/ddns
+    --cookie-secure M   auto | true | false，默认 auto
+    --yes, -y           非交互确认
+    --purge             卸载时同时删除数据与账号（谨慎）
+    --no-start          安装/更新后不启动服务
 
-示例:
-  sudo sh install.sh install
-  sudo sh install.sh install --port 9090
-  sudo sh install.sh update --version v1.2.3
-  sudo sh install.sh uninstall --purge --yes
+  ${BOLD}示例${NC}
+    sudo sh install.sh                交互式菜单，安装时可设置端口
+    sudo sh install.sh install        安装向导，按提示设置端口
+    sudo sh install.sh update --version v1.2.3
+    sudo sh install.sh uninstall --purge --yes
 
-环境变量:
-  DDNS_REPO           默认 jinhuaitao/ddns
-  DDNS_MIRROR_PREFIX  下载镜像前缀，留空则仅使用 GitHub
-  DDNS_DOWNLOAD_BASE  自定义二进制下载目录（优先级最高）
+  ${BOLD}环境变量${NC}
+    DDNS_REPO           默认 jinhuaitao/ddns
+    DDNS_MIRROR_PREFIX  下载镜像前缀，留空则仅使用 GitHub
+    DDNS_DOWNLOAD_BASE  自定义二进制下载目录（优先级最高）
 
-安装目录:
-  二进制  $BIN_PATH
-  数据    $DEFAULT_DATA_DIR（可通过 --data-dir 修改）
-  环境    $ENV_FILE
+  ${BOLD}安装目录${NC}
+    二进制  $BIN_PATH
+    数据    $DEFAULT_DATA_DIR（可通过 --data-dir 修改）
+    环境    $ENV_FILE
 EOF
 }
 
@@ -130,21 +140,31 @@ addr_with_port() {
     esac
 }
 
-prompt_install_port() {
-    [ -t 0 ] || return 0
+configure_install() {
+    [ -t 0 ] && [ -t 1 ] || return 0
+    [ "$ASSUME_YES" -eq 1 ] && return 0
+    [ -n "$ADDR_ARG" ] && return 0
+
     current=$(addr_port "$ADDR")
     [ -n "$current" ] || current="8080"
+
+    printf '\n'
+    printf "  ${BOLD}安装设置${NC}\n"
+    printf "  ${DIM}面板监听端口，直接回车保持当前值；由 Nginx 反代时可保持默认。${NC}\n\n"
     while :; do
-        printf '监听端口 [%s]（直接回车保持不变）: ' "$current"
+        printf "  ${BOLD}监听端口${NC} ${DIM}[%s]${NC}: " "$current"
         read -r input || return 0
         input=$(printf '%s' "$input" | tr -d '[:space:]')
-        [ -n "$input" ] || return 0
-        if is_valid_port "$input"; then
-            ADDR=$(addr_with_port "$input")
-            info "监听地址: $ADDR"
+        if [ -z "$input" ]; then
+            info "监听地址 $ADDR"
             return 0
         fi
-        warn "端口需为 1-65535 的数字，请重新输入"
+        if is_valid_port "$input"; then
+            ADDR=$(addr_with_port "$input")
+            info "监听地址 $ADDR"
+            return 0
+        fi
+        warn "请输入 1-65535 之间的端口号"
     done
 }
 
@@ -508,13 +528,21 @@ panel_url() {
     esac
 }
 
+show_install_header() {
+    printf '\n'
+    printf "  ${BLUE}${BOLD}DDNS Master${NC}  ${DIM}%s${NC}\n" "${1:-安装向导}"
+    divider
+}
+
 print_summary() {
     printf '\n'
-    say "DDNS Master 已就绪"
-    printf '  访问地址: %s\n' "$(panel_url)"
-    printf '  数据目录: %s\n' "$DATA_DIR"
-    printf '  配置文件: %s\n' "$ENV_FILE"
-    printf '  版本信息: %s\n' "$("$BIN_PATH" version 2>/dev/null || printf '未知')"
+    printf "  ${GREEN}${BOLD}✓ %s${NC}\n" "${1:-安装完成}"
+    divider
+    printf '  %s访问地址%s  %s\n' "$BOLD" "$NC" "$(panel_url)"
+    printf '  %s数据目录%s  %s\n' "$BOLD" "$NC" "$DATA_DIR"
+    printf '  %s配置文件%s  %s\n' "$BOLD" "$NC" "$ENV_FILE"
+    printf '  %s版本信息%s  %s\n' "$BOLD" "$NC" "$("$BIN_PATH" version 2>/dev/null || printf '未知')"
+    divider
     if [ "$NO_START" -eq 1 ]; then
         warn "服务尚未启动（--no-start）。启动命令："
         if [ "$INIT_SYSTEM" = "systemd" ]; then
@@ -522,6 +550,8 @@ print_summary() {
         else
             printf '  rc-service %s start\n' "$SERVICE_NAME"
         fi
+    else
+        printf "  ${DIM}打开上面的地址，创建管理员账号后即可开始使用。${NC}\n"
     fi
     printf '\n'
 }
@@ -545,32 +575,45 @@ start_after_deploy() {
 }
 
 do_install() {
+    show_install_header "安装向导"
+    step "检查运行环境"
     detect_platform
+    info "架构 linux/$ARCH  ${DIM}·${NC}  服务 $INIT_SYSTEM"
+    configure_install
     validate_inputs
+    step "准备服务账号与数据目录"
     ensure_service_user
     prepare_data_dir
+    step "下载并安装程序"
     fetch_binary
     deploy_binary "$FETCHED_BINARY"
     prepare_data_dir
     write_service
+    step "启动服务"
     start_after_deploy || exit 1
-    print_summary
+    print_summary "安装完成"
 }
 
 do_update() {
+    show_install_header "版本更新"
+    step "检查运行环境"
     detect_platform
+    info "架构 linux/$ARCH  ${DIM}·${NC}  服务 $INIT_SYSTEM"
     validate_inputs
     if [ ! -x "$BIN_PATH" ]; then
         fail "尚未安装 DDNS Master，请先执行：sh $0 install"
     fi
+    step "准备服务账号与数据目录"
     ensure_service_user
     prepare_data_dir
+    step "下载并安装程序"
     fetch_binary
     deploy_binary "$FETCHED_BINARY"
     prepare_data_dir
     write_service
+    step "启动服务"
     start_after_deploy || exit 1
-    print_summary
+    print_summary "更新完成"
 }
 
 do_uninstall() {
@@ -626,7 +669,9 @@ do_uninstall() {
 
 do_status() {
     detect_platform
-    printf '%s\n' "${BOLD}DDNS Master 状态${NC}"
+    printf '\n'
+    printf "  ${BLUE}${BOLD}DDNS Master${NC}  ${DIM}服务状态${NC}\n"
+    divider
     if [ -x "$BIN_PATH" ]; then
         printf '  二进制   %s\n' "$BIN_PATH"
         printf '  版本     %s\n' "$("$BIN_PATH" version 2>/dev/null || printf '无法执行')"
@@ -692,32 +737,65 @@ do_restart() {
     say "服务已重启"
 }
 
+service_state() {
+    if [ ! -x "$BIN_PATH" ]; then
+        printf '未安装'
+    elif is_active; then
+        printf '运行中'
+    else
+        printf '已停止'
+    fi
+}
+
+menu_status() {
+    state=$(service_state)
+    case "$state" in
+        运行中) printf "  ${GREEN}●${NC} ${GREEN}%s${NC}\n" "$state" ;;
+        已停止) printf "  ${YELLOW}●${NC} ${YELLOW}%s${NC}\n" "$state" ;;
+        *) printf "  ${DIM}○ 未安装${NC}\n"; return ;;
+    esac
+    version=$("$BIN_PATH" version 2>/dev/null | awk '{print $2}')
+    [ -n "$version" ] || version="版本未知"
+    printf "  ${DIM}·${NC}  %s  ${DIM}·${NC}  %s\n" "$version" "$(panel_url)"
+}
+
+pause_menu() {
+    [ -t 0 ] || return 0
+    printf '\n  %s按回车返回菜单%s' "$DIM" "$NC"
+    read -r _ || true
+}
+
 interactive_menu() {
     [ -t 0 ] || { usage; exit 1; }
     while :; do
-        printf '\n%s\n' "${BOLD}------------------------------------------${NC}"
-        printf '%s\n' "${BOLD}    DDNS Master 管理脚本${NC}"
-        printf '%s\n' "------------------------------------------"
-        printf '  1. 安装 / 覆盖安装\n'
-        printf '  2. 更新到最新版本\n'
-        printf '  3. 查看状态\n'
-        printf '  4. 重启服务\n'
-        printf '  5. 查看日志\n'
-        printf '  6. 停止服务\n'
-        printf '  7. 卸载\n'
-        printf '  0. 退出\n'
-        printf '%s' "请选择: "
+        printf '\n'
+        printf "  ${BLUE}${BOLD}DDNS Master${NC}  ${DIM}Cloudflare 动态 DNS 面板${NC}\n"
+        divider
+        menu_status
+        divider
+        printf '\n'
+        printf "  ${BLUE}1${NC}  ${BOLD}安装 / 覆盖安装${NC}   ${DIM}设置端口，保留已有数据${NC}\n"
+        printf "  ${BLUE}2${NC}  ${BOLD}更新到最新版本${NC}    ${DIM}失败自动回滚${NC}\n"
+        printf "  ${BLUE}3${NC}  ${BOLD}查看服务状态${NC}\n"
+        printf "  ${BLUE}4${NC}  ${BOLD}重启服务${NC}\n"
+        printf "  ${BLUE}5${NC}  ${BOLD}查看运行日志${NC}\n"
+        printf "  ${BLUE}6${NC}  ${BOLD}停止服务${NC}\n"
+        printf "  ${BLUE}7${NC}  ${BOLD}卸载服务${NC}          ${DIM}默认保留数据与账号${NC}\n"
+        printf "  ${BLUE}0${NC}  ${BOLD}退出${NC}\n"
+        printf '\n'
+        printf "  ${BOLD}请选择${NC} ${BLUE}›${NC} "
         read -r choice || exit 0
         case "$choice" in
-            1) prompt_install_port; do_install; return ;;
-            2) do_update; return ;;
-            3) do_status; return ;;
-            4) do_restart; return ;;
-            5) do_logs; return ;;
-            6) do_stop; return ;;
-            7) do_uninstall; return ;;
-            0|"") exit 0 ;;
-            *) warn "无效选项" ;;
+            1) do_install; pause_menu ;;
+            2) do_update; pause_menu ;;
+            3) do_status; pause_menu ;;
+            4) do_restart; pause_menu ;;
+            5) do_logs; pause_menu ;;
+            6) do_stop; pause_menu ;;
+            7) do_uninstall; pause_menu ;;
+            0|q|Q) exit 0 ;;
+            "") ;;
+            *) warn "无效选项，请输入 0-7" ;;
         esac
     done
 }
@@ -741,7 +819,6 @@ FROM_FILE=""
 PURGE=0
 ASSUME_YES=0
 NO_START=0
-PORT_ARG=""
 ADDR_ARG=""
 DATA_DIR_ARG=""
 COOKIE_ARG=""
@@ -755,11 +832,6 @@ while [ $# -gt 0 ]; do
         --from-file)
             [ $# -ge 2 ] || fail "--from-file 缺少参数"
             FROM_FILE="$2"; shift 2 ;;
-        --port)
-            [ $# -ge 2 ] || fail "--port 缺少参数"
-            PORT_ARG="$2"
-            is_valid_port "$PORT_ARG" || fail "--port 需为 1-65535 的数字，例如 8080 或 9090"
-            shift 2 ;;
         --addr)
             [ $# -ge 2 ] || fail "--addr 缺少参数"
             ADDR_ARG="$2"; shift 2 ;;
@@ -789,16 +861,17 @@ fi
 
 require_root
 load_existing_config
-if [ -n "$PORT_ARG" ] && [ -n "$ADDR_ARG" ]; then
-    fail "--port 与 --addr 不能同时使用"
-fi
 [ -n "$ADDR_ARG" ] && ADDR="$ADDR_ARG"
-[ -n "$PORT_ARG" ] && ADDR=$(addr_with_port "$PORT_ARG")
 [ -n "$DATA_DIR_ARG" ] && DATA_DIR="$DATA_DIR_ARG"
 [ -n "$COOKIE_ARG" ] && COOKIE_SECURE="$COOKIE_ARG"
 
 if [ "$COMMAND" = "menu" ]; then
+    [ -t 0 ] || { usage; exit 1; }
     detect_platform
+    if ! service_installed; then
+        do_install
+        exit 0
+    fi
     interactive_menu
     exit 0
 fi

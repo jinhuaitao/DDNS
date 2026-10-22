@@ -24,10 +24,10 @@
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jinhuaitao/ddns/main/install.sh -o install.sh
-sudo sh install.sh install
+sudo sh install.sh
 ```
 
-安装完成后访问 `http://服务器IP:8080`，创建管理员账号。若需更换端口，可运行 `sudo sh install.sh install --port 9090`，或在交互式安装时直接输入端口。然后：
+安装过程中会提示设置监听端口（直接回车使用默认 `8080`）。安装完成后访问 `http://服务器IP:8080`，创建管理员账号，然后：
 
 1. 打开「系统设置」，填入 Cloudflare API Token 并保存。
 2. 回到仪表盘「添加域名」，输入完整域名（如 `home.example.com`），选择记录类型与 IP 来源。
@@ -46,10 +46,10 @@ Zone   / DNS  / Edit
 # 使用本地二进制（linux-amd64 / linux-arm64）
 sudo sh install.sh install --from-file ./ddns-linux-amd64
 
-# 自定义端口（保留已有绑定地址，例如原为 127.0.0.1:8080 则改为 127.0.0.1:9090）
-sudo sh install.sh install --port 9090
+# 进入交互式菜单，安装时可设置端口
+sudo sh install.sh
 
-# 自定义监听地址与数据目录
+# 自定义监听地址与数据目录（适合自动化部署）
 sudo sh install.sh install --addr 127.0.0.1:8080 --data-dir /var/lib/ddns
 
 # 指定版本
@@ -67,8 +67,8 @@ sudo sh install.sh install --version v1.2.3
 ## 服务管理
 
 ```bash
+sudo sh install.sh             # 交互式菜单，安装时可设置端口
 sudo sh install.sh status      # 服务状态、版本、访问地址
-sudo sh install.sh install --port 9090   # 修改监听端口，保留数据与账号
 sudo sh install.sh update      # 下载并安装最新版，失败自动回滚
 sudo sh install.sh restart
 sudo sh install.sh logs        # 持续跟随日志
@@ -93,7 +93,7 @@ sudo sh install.sh uninstall --purge --yes   # 同时删除面板数据库与账
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DDNS_ADDR` | `:8080` | 监听地址，例如 `127.0.0.1:8080`；安装时可用 `--port` 单独设置端口 |
+| `DDNS_ADDR` | `:8080` | 监听地址，例如 `127.0.0.1:8080` |
 | `DDNS_DATA_DIR` | `.`（安装后为 `/etc/ddns`） | SQLite 与会话密钥所在目录 |
 | `DDNS_COOKIE_SECURE` | `auto` | `auto` 按 TLS / `X-Forwarded-Proto` 判断；反代未透传时设为 `true` |
 | `DDNS_DEBUG` | 空 | `1` 开启 Gin 调试日志 |
