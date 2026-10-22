@@ -23,7 +23,7 @@
 ### 一键安装
 
 ```bash
-curl -fsSL https://github.com/jinhuaitao/ddns/releases/latest/download/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/jinhuaitao/ddns/main/install.sh -o install.sh
 sudo sh install.sh install
 ```
 
@@ -53,7 +53,7 @@ sudo sh install.sh install --addr 127.0.0.1:8080 --data-dir /var/lib/ddns
 sudo sh install.sh install --version v1.2.3
 ```
 
-脚本会校验二进制的 `version` 输出，并在发布方提供 `SHA256SUMS` 时校验完整性。下载失败会自动尝试镜像，也可通过环境变量控制：
+脚本会校验二进制的 `version` 输出；若下载源提供 `SHA256SUMS`，还会额外校验完整性。下载失败会自动尝试镜像，也可通过环境变量控制：
 
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
@@ -198,4 +198,4 @@ DDNS_DATA_DIR=./data ./ddns
 | `auth.go` / `store.go` / `backup.go` | 会话安全、数据库、备份导入导出 |
 | `templates/` / `static/` | 内嵌模板、样式与脚本 |
 
-CI 会在每次推送和 PR 时执行 `gofmt`、`go vet`、测试与构建；推送 `v*` 标签时发布 `ddns-linux-amd64`、`ddns-linux-arm64`、`install.sh` 与 `SHA256SUMS`。
+CI 会在每次推送和 PR 时执行 `gofmt`、`go vet`、测试与构建；推送 `v*` 标签时发布 `ddns-linux-amd64` 与 `ddns-linux-arm64` 两个二进制。手动触发时可填写版本标签（如 `v1.2.3`）直接创建同名 Release，留空则仅测试和构建。
