@@ -3,82 +3,131 @@ name: Build and Release
 on:
   push:
     branches:
-      - "main"
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  # 第一阶段：编译 (Build)
-  build:
-    name: Build for ${{ matrix.os }}/${{ matrix.arch }}
+  test:
+    name: Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-            filename: ddns-linux-amd64
-          - os: linux
-            arch: arm64
-            filename: ddns-linux-arm64
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.21'
+          go-version-file: go.mod
+          cache: true
 
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Build Binary
-        env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
-          CGO_ENABLED: 0 
+      - name: Check formatting
         run: |
-          go build -ldflags "-s -w" -o ${{ matrix.filename }} main.go
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未通过 gofmt："
+            echo "$unformatted"
+            exit 1
+          fi
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-${{ matrix.os }}-${{ matrix.arch }}
-          path: ${{ matrix.filename }}
-          retention-days: 1
+      - name: Vet
+        run: go vet ./...
 
-  # 第二阶段：发布 (Release)
-  release:
-    name: Create Release
+      - name: Test
+        run: go test -count=1 ./...
+
+      - name: Build check
+        run: go build -o /tmp/ddns-panel .
+
+  build:
+    name: Build linux/${{ matrix.arch }}
+    needs: test
     runs-on: ubuntu-latest
-    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            filename: ddns-linux-amd64
+          - arch: arm64
+            filename: ddns-linux-arm64
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v7
 
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+      - name: Setup Go
+        uses: actions/setup-go@v7
         with:
-          path: ./artifacts
+          go-version-file: go.mod
+          cache: true
 
-      - name: Bump version and push tag
-        id: tag_version
-        uses: mathieudutour/github-tag-action@v6.2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: patch
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.tag_version.outputs.new_tag }}
-          name: Release ${{ steps.tag_version.outputs.new_tag }}
-          body: ${{ steps.tag_version.outputs.changelog }}
-          files: ./artifacts/**/*
+      - name: Build
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('dev-{0}', github.sha) }}
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X main.Version=${VERSION}" \
+            -o "${{ matrix.filename }}" .
+
+      - name: Verify binary
+        run: |
+          chmod +x "${{ matrix.filename }}"
+          file "${{ matrix.filename }}"
+          sha256sum "${{ matrix.filename }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.filename }}
+          path: ${{ matrix.filename }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare release files
+        run: |
+          cp install.sh dist/install.sh
+          cd dist
+          sha256sum ddns-linux-amd64 ddns-linux-arm64 install.sh > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/ddns-linux-amd64
+            dist/ddns-linux-arm64
+            dist/install.sh
+            dist/SHA256SUMS
+          generate_release_notes: true
+          fail_on_unmatched_files: true
