@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/jinhuaitao/ddns/main/install.sh -o 
 sudo sh install.sh
 ```
 
-安装过程中会提示设置监听端口（直接回车使用默认 `8080`）。安装完成后访问 `http://服务器IP:8080`，创建管理员账号，然后：
+安装过程中会提示设置监听端口，直接回车使用默认 `8080`。安装完成后访问 `http://服务器IP:端口`，创建管理员账号，然后：
 
 1. 打开「系统设置」，填入 Cloudflare API Token 并保存。
 2. 回到仪表盘「添加域名」，输入完整域名（如 `home.example.com`），选择记录类型与 IP 来源。
@@ -45,9 +45,6 @@ Zone   / DNS  / Edit
 ```bash
 # 使用本地二进制（linux-amd64 / linux-arm64）
 sudo sh install.sh install --from-file ./ddns-linux-amd64
-
-# 进入交互式菜单，安装时可设置端口
-sudo sh install.sh
 
 # 自定义监听地址与数据目录（适合自动化部署）
 sudo sh install.sh install --addr 127.0.0.1:8080 --data-dir /var/lib/ddns

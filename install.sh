@@ -27,10 +27,10 @@ else
     GREEN=''; RED=''; YELLOW=''; BLUE=''; BOLD=''; DIM=''; NC=''
 fi
 
-say()  { printf "${GREEN}✓${NC} %s\n" "$*"; }
-info() { printf "${BLUE}›${NC} %s\n" "$*"; }
-warn() { printf "${YELLOW}!${NC} %s\n" "$*"; }
-fail() { printf "${RED}✗ %s${NC}\n" "$*" >&2; exit 1; }
+say()  { printf "  ${GREEN}✓${NC} %s\n" "$*"; }
+info() { printf "  ${BLUE}›${NC} %s\n" "$*"; }
+warn() { printf "  ${YELLOW}!${NC} %s\n" "$*"; }
+fail() { printf "  ${RED}✗ %s${NC}\n" "$*" >&2; exit 1; }
 die()  { fail "$*"; }
 
 divider() {
@@ -38,7 +38,7 @@ divider() {
 }
 
 step() {
-    printf "\n${BLUE}▸${NC} ${BOLD}%s${NC}\n" "$*"
+    printf "\n  ${BLUE}▸${NC} ${BOLD}%s${NC}\n" "$*"
 }
 
 usage() {
@@ -64,7 +64,7 @@ usage() {
   ${BOLD}选项${NC}
     --version TAG       指定 Release 标签，例如 v1.2.3；默认 latest
     --from-file FILE    使用本地二进制文件安装或更新
-    --addr ADDR         监听地址，例如 127.0.0.1:8080；安装时会提示设置端口
+    --addr ADDR         监听地址，例如 127.0.0.1:8080（指定后不再询问端口）
     --data-dir DIR      数据目录，默认 /etc/ddns
     --cookie-secure M   auto | true | false，默认 auto
     --yes, -y           非交互确认
@@ -114,7 +114,11 @@ env_value() {
 }
 
 require_root() {
-    [ "$(id -u)" -eq 0 ] || fail "请使用 root 权限运行，例如：sudo sh install.sh ${COMMAND}"
+    [ "$(id -u)" -eq 0 ] && return 0
+    if [ "$COMMAND" = "menu" ]; then
+        fail "请使用 root 权限运行，例如：sudo sh install.sh"
+    fi
+    fail "请使用 root 权限运行，例如：sudo sh install.sh ${COMMAND}"
 }
 
 is_valid_port() {
@@ -538,10 +542,10 @@ print_summary() {
     printf '\n'
     printf "  ${GREEN}${BOLD}✓ %s${NC}\n" "${1:-安装完成}"
     divider
-    printf '  %s访问地址%s  %s\n' "$BOLD" "$NC" "$(panel_url)"
-    printf '  %s数据目录%s  %s\n' "$BOLD" "$NC" "$DATA_DIR"
-    printf '  %s配置文件%s  %s\n' "$BOLD" "$NC" "$ENV_FILE"
-    printf '  %s版本信息%s  %s\n' "$BOLD" "$NC" "$("$BIN_PATH" version 2>/dev/null || printf '未知')"
+    printf "  ${BOLD}访问地址${NC}  %s\n" "$(panel_url)"
+    printf "  ${BOLD}数据目录${NC}  %s\n" "$DATA_DIR"
+    printf "  ${BOLD}配置文件${NC}  %s\n" "$ENV_FILE"
+    printf "  ${BOLD}版本信息${NC}  %s\n" "$("$BIN_PATH" version 2>/dev/null || printf '未知')"
     divider
     if [ "$NO_START" -eq 1 ]; then
         warn "服务尚未启动（--no-start）。启动命令："
@@ -558,6 +562,7 @@ print_summary() {
 
 start_after_deploy() {
     if start_service; then
+        [ "$NO_START" -eq 1 ] || say "服务已启动"
         return 0
     fi
     if [ -f "${BIN_PATH}.bak" ]; then
@@ -578,15 +583,17 @@ do_install() {
     show_install_header "安装向导"
     step "检查运行环境"
     detect_platform
-    info "架构 linux/$ARCH  ${DIM}·${NC}  服务 $INIT_SYSTEM"
+    printf "  ${BLUE}›${NC} 架构 linux/%s  ${DIM}·${NC}  服务 %s\n" "$ARCH" "$INIT_SYSTEM"
     configure_install
     validate_inputs
     step "准备服务账号与数据目录"
     ensure_service_user
     prepare_data_dir
+    info "数据目录 $DATA_DIR"
     step "下载并安装程序"
     fetch_binary
     deploy_binary "$FETCHED_BINARY"
+    info "程序位置 $BIN_PATH"
     prepare_data_dir
     write_service
     step "启动服务"
@@ -598,7 +605,7 @@ do_update() {
     show_install_header "版本更新"
     step "检查运行环境"
     detect_platform
-    info "架构 linux/$ARCH  ${DIM}·${NC}  服务 $INIT_SYSTEM"
+    printf "  ${BLUE}›${NC} 架构 linux/%s  ${DIM}·${NC}  服务 %s\n" "$ARCH" "$INIT_SYSTEM"
     validate_inputs
     if [ ! -x "$BIN_PATH" ]; then
         fail "尚未安装 DDNS Master，请先执行：sh $0 install"
@@ -606,9 +613,11 @@ do_update() {
     step "准备服务账号与数据目录"
     ensure_service_user
     prepare_data_dir
+    info "数据目录 $DATA_DIR"
     step "下载并安装程序"
     fetch_binary
     deploy_binary "$FETCHED_BINARY"
+    info "程序位置 $BIN_PATH"
     prepare_data_dir
     write_service
     step "启动服务"
@@ -633,7 +642,7 @@ do_uninstall() {
 
     purge="$PURGE"
     if [ "$purge" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
-        printf '%s' "${YELLOW}是否同时删除面板数据库与账号？[y/N]: ${NC}"
+        printf "\n  ${YELLOW}是否同时删除面板数据库与账号？${NC} [y/N]: "
         read -r answer || answer=""
         case "$answer" in
             y|Y|yes|YES) purge=1 ;;
@@ -761,7 +770,7 @@ menu_status() {
 
 pause_menu() {
     [ -t 0 ] || return 0
-    printf '\n  %s按回车返回菜单%s' "$DIM" "$NC"
+    printf "\n  ${DIM}按回车返回菜单${NC}"
     read -r _ || true
 }
 
@@ -865,19 +874,19 @@ load_existing_config
 [ -n "$DATA_DIR_ARG" ] && DATA_DIR="$DATA_DIR_ARG"
 [ -n "$COOKIE_ARG" ] && COOKIE_SECURE="$COOKIE_ARG"
 
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ddns-install.XXXXXX") || fail "创建临时目录失败"
+trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
+
 if [ "$COMMAND" = "menu" ]; then
     [ -t 0 ] || { usage; exit 1; }
-    detect_platform
     if ! service_installed; then
         do_install
         exit 0
     fi
+    detect_platform
     interactive_menu
     exit 0
 fi
-
-TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ddns-install.XXXXXX") || fail "创建临时目录失败"
-trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
 case "$COMMAND" in
     install) do_install ;;
