@@ -1,13 +1,12 @@
 module go-ddns
 
-go 1.25.6
+go 1.24.0
 
 require (
 	github.com/cloudflare/cloudflare-go v0.116.0
 	github.com/gin-contrib/sessions v1.0.4
 	github.com/gin-gonic/gin v1.11.0
 	github.com/glebarez/sqlite v1.11.0
-	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/crypto v0.48.0
 	gorm.io/gorm v1.31.1
 )
