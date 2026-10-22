@@ -16,7 +16,7 @@
 | 可观测 | 每个域名的状态、最后检查/变更时间、错误原因；变更历史与系统日志 |
 | 备份迁移 | 导出/导入 JSON，兼容旧版备份；恢复时按域名合并，不覆盖无关数据 |
 | 界面 | 响应式桌面/移动布局，明暗主题，无刷新增删改与确认对话框 |
-| 部署 | systemd / OpenRC 服务，独立低权限运行用户，单文件升级与回滚 |
+| 部署 | Debian/Ubuntu（systemd）与 Alpine（OpenRC），独立低权限运行用户，单文件升级与回滚 |
 
 ## 快速开始
 
@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/jinhuaitao/ddns/main/install.sh -o 
 sudo sh install.sh
 ```
 
-安装过程中会提示设置监听端口，直接回车使用默认 `8080`。安装完成后访问 `http://服务器IP:端口`，创建管理员账号，然后：
+安装过程中会提示设置监听端口，直接回车使用默认 `8080`。脚本自动适配 Debian/Ubuntu（systemd）与 Alpine（OpenRC）。安装完成后访问 `http://服务器IP:端口`，创建管理员账号，然后：
 
 1. 打开「系统设置」，填入 Cloudflare API Token 并保存。
 2. 回到仪表盘「添加域名」，输入完整域名（如 `home.example.com`），选择记录类型与 IP 来源。

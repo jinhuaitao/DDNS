@@ -300,7 +300,7 @@ download_to() {
     if command -v curl >/dev/null 2>&1; then
         curl -fL --retry 2 --connect-timeout 10 --max-time 300 -o "$dest" "$url"
     elif command -v wget >/dev/null 2>&1; then
-        wget -q --timeout=30 --tries=3 -O "$dest" "$url"
+        wget -q -T 30 -t 3 -O "$dest" "$url"
     else
         fail "未找到 curl 或 wget，无法下载二进制"
     fi
@@ -517,7 +517,16 @@ write_service() {
 primary_ip() {
     ip_addr=$(hostname -I 2>/dev/null | awk '{print $1}')
     if [ -z "$ip_addr" ] && command -v ip >/dev/null 2>&1; then
-        ip_addr=$(ip -4 addr show scope global 2>/dev/null | awk '/inet /{print $2; exit}' | cut -d/ -f1)
+        ip_addr=$(ip route get 1.1.1.1 2>/dev/null \
+            | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}')
+    fi
+    if [ -z "$ip_addr" ] && command -v ip >/dev/null 2>&1; then
+        ip_addr=$(ip -4 addr show scope global 2>/dev/null \
+            | awk '/inet /{print $2; exit}' | cut -d/ -f1)
+    fi
+    if [ -z "$ip_addr" ] && command -v ifconfig >/dev/null 2>&1; then
+        ip_addr=$(ifconfig 2>/dev/null | awk '/inet /{print $2}' \
+            | sed -e 's/^addr://' -e 's|/.*$||' | grep -v '^127\.' | head -n 1)
     fi
     [ -n "$ip_addr" ] && printf '%s' "$ip_addr" || printf '服务器IP'
 }
